@@ -1,0 +1,123 @@
+"""Occupancy sheets drawn on the original gegmebi sheets, and the API around them."""
+from pathlib import Path
+
+import fitz
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from app.extract import open_pdf, read_page
+from app.main import app
+from app.sheet import CLASS_STYLE, find_empty_box, hatch_segments, occupancy_sheet, printed_unit_area, title_block
+from app.zones import detect_zones
+
+ROOT = Path(__file__).resolve().parents[2]
+SOURCE = ROOT / "Sample Input Diagrams & Description input" / "gegmebi (2).pdf"
+
+needs_pdf = pytest.mark.skipif(not SOURCE.exists(), reason="sample PDFs not mounted")
+SCALE = 1.0
+
+
+def test_hatch_stays_inside_mask():
+    mask = np.zeros((100, 100), np.uint8)
+    mask[20:60, 30:80] = 255
+    segs = hatch_segments(mask, 1.0, spacing_pt=5)
+    assert segs
+    for (x0, y0), (x1, y1) in segs:
+        for x, y in ((x0, y0), (x1, y1)):
+            assert 30 <= x < 80 and 20 <= y < 60
+        assert abs((x1 - x0) + (y1 - y0)) < 1e-6  # '/' direction: x + y constant
+
+
+def test_empty_box_prefers_top_right_and_avoids_ink():
+    ink = np.zeros((200, 300), np.uint8)
+    ink[0:60, 200:300] = 1  # ink in the top-right corner
+    x, y = find_empty_box(ink, 1.0, 40, 20, x_max_pt=300, margin_pt=2)
+    assert not ink[int(y):int(y) + 20, int(x):int(x) + 40].any()
+    assert x + 40 <= 200 or y >= 60
+    assert (x + 40 > 150 and y < 10) or (x > 250 and y < 70)  # hugging the corner region
+
+
+@pytest.fixture(scope="module")
+def gegmebi():
+    doc = open_pdf(SOURCE)
+    return doc, read_page(doc, 0), read_page(doc, 1)
+
+
+@needs_pdf
+def test_title_block(gegmebi):
+    _, p0, _ = gegmebi
+    lines, number = title_block(p0)
+    assert [" ".join(w.display for w in line) for line in lines] == ["-3 სართულის გეგმა", "-10.20 ნიშნულზე"]
+    assert number.display == "ა-100"
+
+
+@needs_pdf
+def test_printed_unit_area(gegmebi):
+    _, p0, p1 = gegmebi
+    assert printed_unit_area(p0, "ბინა-02") == 185.2
+    assert printed_unit_area(p1, "ბინა-404") is None
+
+
+@needs_pdf
+def test_occupancy_sheet(gegmebi):
+    doc, _, p1 = gegmebi
+    zones = detect_zones(p1, SCALE)
+    sheet = occupancy_sheet(doc, 1, p1, zones, SCALE, "ka")
+    out = sheet.doc[0]
+    # Display orientation, same size as the source sheet as seen.
+    assert out.rotation == 0 and (round(out.rect.width), round(out.rect.height)) == (round(p1.width), round(p1.height))
+    assert sheet.derived_number == "ა-100(ა)"
+    assert sheet.title_lines[-1] == "დაკავებულობის გეგმა"
+    assert set(sheet.classes) == {"residential", "business"}
+    assert {u.name for u in sheet.units} >= {"ბინა-01", "ბინა-02", "ოფისი 1"}
+
+    # The original drawing is still there, and our text was added on top of it.
+    text = out.get_text()
+    assert "დაკავებულობის გეგმა" in text and "ა-100(ა)" in text and "საქმიანი ჯგუფი (სქ)" in text
+
+    # Purple hatch lands inside the office zone, i.e. overlay and drawing line up.
+    pix = out.get_pixmap(matrix=fitz.Matrix(SCALE, SCALE), alpha=False)
+    img = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, 3).astype(int)
+    r, g, b = (np.array(CLASS_STYLE["business"]["rgb"]) * 255).astype(int)
+    purple = (abs(img[..., 0] - r) < 40) & (abs(img[..., 1] - g) < 40) & (abs(img[..., 2] - b) < 40)
+    zone = zones.masks["business"] > 0
+    assert purple[zone].sum() > 0.7 * purple.sum() - 500  # legend swatch is the only purple outside
+
+
+@needs_pdf
+def test_api_skips_pages_without_units():
+    client = TestClient(app)
+    with SOURCE.open("rb") as f:
+        r = client.post("/sheets/occupancy", files={"file": ("gegmebi.pdf", f, "application/pdf")}, data={"lang": "ka"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["pageCount"] == 7
+    assert [s["index"] for s in body["sheets"]] == [0, 1, 2, 3, 4, 5]
+    assert body["skipped"] == [{"index": 6, "reason": "no units found"}]
+    assert body["sheets"][0]["derivedNumber"] == "ა-100(ა)"
+    assert body["sheets"][0]["image"].startswith("data:image/jpeg;base64,")
+
+
+@needs_pdf
+def test_api_sheets_both_kinds():
+    client = TestClient(app)
+    with SOURCE.open("rb") as f:
+        r = client.post("/sheets", files={"file": ("gegmebi.pdf", f, "application/pdf")},
+                        data={"lang": "ka", "kinds": "occupancy,fire"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    got = [(s["index"], s["kind"], s["derivedNumber"]) for s in body["sheets"]]
+    assert got[:2] == [(0, "occupancy", "ა-100(ა)"), (0, "fire", "ა-100(ბ)")]
+    assert len(got) == 12
+
+
+def test_api_rejects_unknown_kind():
+    r = TestClient(app).post("/sheets", files={"file": ("x.pdf", b"%PDF-1.4", "application/pdf")},
+                             data={"kinds": "occupancy,zoning"})
+    assert r.status_code == 422
+
+
+def test_api_rejects_non_pdf():
+    r = TestClient(app).post("/sheets/occupancy", files={"file": ("x.txt", b"hello", "text/plain")})
+    assert r.status_code == 415

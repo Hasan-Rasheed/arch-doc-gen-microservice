@@ -1,0 +1,221 @@
+"""HTTP API called by the NestJS backend."""
+
+import base64
+import json
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+
+from .extract import PageData, open_pdf, read_page, read_pdf, summary
+from .sheet import access_sheet, fire_sheet, occupancy_sheet, to_jpeg
+from .acadnusx import fold
+from .fire import _open_air
+from .functions import EXTRA_CLASSES, is_accessory, room_name
+from .zones import ZoneResult, detect_zones
+
+app = FastAPI(title="ArchiDocGen geometry service")
+
+ZONE_SCALE = 2.0
+# Pages processed in parallel (one process each); GEOMETRY_WORKERS=1 turns it off.
+WORKERS = int(os.environ.get("GEOMETRY_WORKERS") or min(4, os.cpu_count() or 1))
+IMAGE_SCALE = 2.5
+# Zones covering more than this share of the sheet mean the walls didn't close (e.g. a plan
+# without wall layers) — better no sheet than a sheet painted over.
+MAX_ZONE_SHARE = 0.4
+# Share of the page's named rooms (circulation aside) that must fall inside a unit. A page where
+# only a few rooms match a unit word (a storage room in a clinic) would otherwise replace the AI
+# sheet with one that colors 2 rooms out of 50. gegmebi: 0.86-1.00; the clinic set: 0.00-0.22;
+# Grand Master 42 (offices, other office): 0.65, where an unlabelled stair core was hatched as an
+# office — kept out until stair cores are found from geometry, not only from "კიბე" labels.
+MIN_NAMED_COVERAGE = 0.75
+# Where the fire and accessibility rules are validated (else those kinds fall back to the AI; the
+# occupancy sheet is still drawn):
+# - fire: floors whose units are mostly labelled dwellings or offices (gegmebi; Grand Master 42
+#   offices P 0.39 / R 0.49) — not zones made from room functions (clinics: no validation data);
+# - accessibility: dwelling floors only (Grand Master 42's route came out nearly empty).
+MIN_RESIDENTIAL_SHARE_FOR_RULES = 0.5
+RULE_KINDS = {"fire", "accessibility"}
+FIRE_VALIDATED_GROUPS = {"residential", "business"}
+
+
+def _read_upload(file: UploadFile) -> bytes:
+    data = file.file.read()
+    if not data.startswith(b"%PDF"):
+        raise HTTPException(status_code=415, detail="Expected a PDF file.")
+    return data
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+@app.post("/extract")
+def extract(file: UploadFile = File(...)):
+    """Layers (with categories), and positioned words (Georgian decoded) for every page."""
+    data = _read_upload(file)
+    try:
+        pages = read_pdf(data)
+    except Exception as exc:  # corrupt/encrypted PDFs
+        raise HTTPException(status_code=422, detail=f"Could not read PDF: {exc}") from exc
+    return {"pages": [summary(p) for p in pages]}
+
+
+def page_verdict(page: PageData, zones: ZoneResult | None) -> tuple[str, dict]:
+    """Whether a page gets geometry sheets ("ok") or falls back to the AI, and why. Shared by
+    the API and harness/survey.py so both judge pages the same way."""
+    if not page.has_layers or zones is None:
+        return "no CAD layers", {}
+    # Real rooms: a name and a written area ("პალატა 18.6 მ²") — title-block cells and legends
+    # have names but no area.
+    named = [r for r in zones.rooms.values()
+             if r.has_name and r.labeled_areas and r.inside and not r.circulation]
+    # Explained: in a zone, or an open balcony/terrace (it needn't join one). A support room left
+    # out of every zone is a genuinely uncoloured room, so it still counts against the page.
+    in_units = sum(1 for r in named if r.unit or _open_air(r))
+    stats = {"units": sum(1 for v in zones.units.values() if v), "namedRooms": len(named),
+             "inUnits": in_units, "coverage": round(in_units / len(named), 2) if named else 0.0}
+    if not stats["units"]:
+        return "no units found", stats
+    covered = sum(int((m > 0).sum()) for m in zones.masks.values())
+    if covered / zones.labels.size > MAX_ZONE_SHARE:
+        return "zones not closed by walls", stats
+    if stats["coverage"] < MIN_NAMED_COVERAGE:
+        return "most rooms not in units", stats
+    return "ok", stats
+
+
+SHEET_KINDS = {"occupancy": occupancy_sheet, "fire": fire_sheet, "accessibility": access_sheet}
+
+
+def unclassified_names(zones: ZoneResult, limit: int = 60) -> list[str]:
+    """Names of real rooms (name + written area, inside the building) that no unit, function,
+    support or circulation word explains — for the backend to classify (ROADMAP N2b-2)."""
+    names = []
+    for r in zones.rooms.values():
+        if r.inside and r.has_name and r.labeled_areas and not (r.unit or r.circulation or r.core or r.function
+                                                                or r.accessory):
+            n = room_name(r.words)
+            if n and n not in names and not is_accessory(r.words):
+                names.append(n)
+    return names[:limit]
+
+
+def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],
+                 room_classes: dict[str, str] | None = None,
+                 storeys: int | None = None, sprinklered: bool = False) -> tuple[list[dict], list[dict]]:
+    """Every requested sheet kind for one page. Runs in a worker process, so it opens the PDF
+    itself (PyMuPDF documents can't be shared across processes)."""
+    sheets, skipped = [], []
+    try:
+        doc = open_pdf(data)
+        page = read_page(doc, index)
+        zones = detect_zones(page, ZONE_SCALE, room_classes) if page.has_layers else None  # shared by every kind
+        verdict, _ = page_verdict(page, zones)
+        if verdict != "ok":
+            entry = {"index": index, "reason": verdict}
+            if verdict == "most rooms not in units":
+                entry["unclassifiedNames"] = unclassified_names(zones)
+            return [], [entry]
+    except Exception as exc:  # one bad page must not lose the others
+        return [], [{"index": index, "reason": f"error: {exc}"}]
+    made = [u for u, rids in zones.units.items() if rids]
+    residential = sum(1 for u in made if zones.unit_class[u] == "residential") / len(made) if made else 0.0
+    labelled_validated = sum(1 for u in made if u not in zones.function_units
+                             and zones.unit_class[u] in FIRE_VALIDATED_GROUPS) / len(made) if made else 0.0
+    for kind in kinds:
+        held = (kind == "fire" and labelled_validated < MIN_RESIDENTIAL_SHARE_FOR_RULES) or \
+               (kind == "accessibility" and residential < MIN_RESIDENTIAL_SHARE_FOR_RULES)
+        if held:
+            skipped.append({"index": index, "kind": kind, "reason": "rules not validated for this building type"})
+            continue
+        try:
+            extra = {"storeys": storeys, "sprinklered": sprinklered} if kind == "fire" else {}
+            sheet = SHEET_KINDS[kind](doc, index, page, zones, ZONE_SCALE, lang, **extra)
+            # Two or more units but no 1-hour wall between them or toward a corridor means the
+            # corridor wasn't found (Grand Master 42); a sheet of only 2-hour lines would read as
+            # "no 1-hour walls needed", so fall back instead.
+            # (Sprinklered non-residential corridors need no rating, so the check is off there.)
+            if kind == "fire" and len(made) >= 2 and not ({"1h", "0.5h"} & set(sheet.classes)) \
+                    and (not sprinklered or residential):
+                skipped.append({"index": index, "kind": kind, "reason": "no unit/corridor walls found"})
+                continue
+            image = base64.b64encode(to_jpeg(sheet.doc, IMAGE_SCALE)).decode()
+        except Exception as exc:
+            skipped.append({"index": index, "kind": kind, "reason": f"error: {exc}"})
+            continue
+        sheets.append({
+            "index": index,
+            "kind": kind,
+            "sheetNumber": sheet.sheet_number,
+            "derivedNumber": sheet.derived_number,
+            "titleLines": sheet.title_lines,
+            "classes": sheet.classes,
+            "egressM": sheet.egress_m,
+            "units": [{"name": u.name, "class": u.cls, "areaM2": u.area_m2, "measuredM2": u.measured_m2}
+                      for u in sheet.units],
+            "image": f"data:image/jpeg;base64,{image}",
+        })
+    return sheets, skipped
+
+
+def _sheets(data: bytes, lang: str, kinds: list[str], pages: list[int] | None = None,
+            room_classes: dict[str, str] | None = None, storeys: int | None = None,
+            sprinklered: bool = False) -> dict:
+    try:
+        page_count = len(open_pdf(data))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read PDF: {exc}") from exc
+
+    indices = [i for i in (pages if pages is not None else range(page_count)) if 0 <= i < page_count]
+    workers = min(WORKERS, len(indices))
+    if workers <= 1:
+        results = [_page_sheets(data, i, lang, kinds, room_classes, storeys, sprinklered) for i in indices]
+    else:
+        # Pages are independent; "spawn" because forking a threaded server process is unsafe.
+        with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+            results = list(pool.map(_page_sheets, repeat(data), indices, repeat(lang), repeat(kinds),
+                                    repeat(room_classes), repeat(storeys), repeat(sprinklered)))
+    sheets = [s for page_sheets, _ in results for s in page_sheets]
+    skipped = [s for _, page_skipped in results for s in page_skipped]
+    return {"pageCount": page_count, "sheets": sheets, "skipped": skipped}
+
+
+@app.post("/sheets")
+def derivative_sheets(file: UploadFile = File(...), lang: str = Form("ka"),
+                      kinds: str = Form("occupancy,fire,accessibility"),
+                      pages: str = Form(""), room_classes: str = Form(""), storeys: str = Form(""),
+                      sprinklered: str = Form("")):
+    """Derivative sheets drawn on each plan page: the original sheet with our layer (occupancy
+    hatch / fire-rated walls / accessible route), a legend and the title block extended
+    (ა-100 → ა-100(ა)/(ბ)/(გ)).
+    Pages where zones can't be found reliably are listed in `skipped`, so the caller can fall
+    back to another method for them."""
+    if lang not in ("ka", "en"):
+        raise HTTPException(status_code=422, detail="lang must be 'ka' or 'en'.")
+    wanted = [k.strip() for k in kinds.split(",") if k.strip()]
+    if not wanted or any(k not in SHEET_KINDS for k in wanted):
+        raise HTTPException(status_code=422, detail=f"kinds must be a comma list of {sorted(SHEET_KINDS)}.")
+    page_list = [int(p) for p in pages.split(",") if p.strip().isdigit()] if pages.strip() else None
+    try:
+        given = json.loads(room_classes) if room_classes.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"room_classes must be JSON: {exc}") from exc
+    # Keys folded once here (any spelling of a name matches); unknown classes dropped.
+    classes = {fold(str(k)): v for k, v in given.items() if v in EXTRA_CLASSES} if isinstance(given, dict) else {}
+    # Storeys the stair cores connect (basements included) — 2 h cores from four up (№41 §713.4).
+    n_storeys = int(storeys) if storeys.strip().isdigit() else None
+    # Sprinklered building (the project says so): Table 1018.1 / 508.4 sprinklered values.
+    return _sheets(_read_upload(file), lang, wanted, page_list, classes or None, n_storeys,
+                   sprinklered.strip().lower() in ("1", "true", "yes"))
+
+
+@app.post("/sheets/occupancy")
+def occupancy(file: UploadFile = File(...), lang: str = Form("ka")):
+    """Occupancy sheets only (same as POST /sheets with kinds=occupancy)."""
+    if lang not in ("ka", "en"):
+        raise HTTPException(status_code=422, detail="lang must be 'ka' or 'en'.")
+    return _sheets(_read_upload(file), lang, ["occupancy"])
