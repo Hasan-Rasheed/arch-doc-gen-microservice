@@ -121,3 +121,22 @@ def test_api_rejects_unknown_kind():
 def test_api_rejects_non_pdf():
     r = TestClient(app).post("/sheets/occupancy", files={"file": ("x.txt", b"hello", "text/plain")})
     assert r.status_code == 415
+
+
+@needs_pdf
+def test_api_plan_matches_the_sheets():
+    # /plan answers which kinds each page would get, without drawing: the same pages /sheets draws.
+    client = TestClient(app)
+    with SOURCE.open("rb") as f:
+        plan = client.post("/plan", files={"file": ("gegmebi.pdf", f, "application/pdf")})
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    ok = [p for p in body["pages"] if p["verdict"] == "ok"]
+    assert body["pageCount"] == 7 and len(ok) == 6
+    assert all("occupancy" in p["kinds"] and p["hasLayers"] for p in ok)
+    with SOURCE.open("rb") as f:
+        sheets = client.post("/sheets", files={"file": ("gegmebi.pdf", f, "application/pdf")}, data={"lang": "ka"}).json()
+    drawn = {(s["index"], s["kind"]) for s in sheets["sheets"]}
+    planned = {(p["index"], k) for p in ok for k in p["kinds"]}
+    # Fire sheets can still be held back after drawing (no unit/corridor walls found).
+    assert drawn <= planned and {(i, k) for i, k in planned if k != "fire"} <= drawn

@@ -104,6 +104,41 @@ def unclassified_names(zones: ZoneResult, limit: int = 60) -> list[str]:
     return names[:limit]
 
 
+def _residential_share(zones: ZoneResult) -> float:
+    made = [u for u, rids in zones.units.items() if rids]
+    return sum(1 for u in made if zones.unit_class[u] == "residential") / len(made) if made else 0.0
+
+
+def _rule_kinds(zones: ZoneResult) -> set[str]:
+    """Sheet kinds the rules are validated for on this page: occupancy always; fire when most
+    labelled units are of a validated group; accessibility when most units are dwellings."""
+    made = [u for u, rids in zones.units.items() if rids]
+    labelled_validated = sum(1 for u in made if u not in zones.function_units
+                             and zones.unit_class[u] in FIRE_VALIDATED_GROUPS) / len(made) if made else 0.0
+    kinds = {"occupancy"}
+    if labelled_validated >= MIN_RESIDENTIAL_SHARE_FOR_RULES:
+        kinds.add("fire")
+    if _residential_share(zones) >= MIN_RESIDENTIAL_SHARE_FOR_RULES:
+        kinds.add("accessibility")
+    return kinds
+
+
+def _page_plan(data: bytes, index: int) -> dict:
+    """Which sheet kinds this page would get from geometry, without drawing them (the Review
+    step's diagram list). Runs in a worker process like _page_sheets."""
+    try:
+        doc = open_pdf(data)
+        page = read_page(doc, index)
+        zones = detect_zones(page, ZONE_SCALE) if page.has_layers else None
+        verdict, stats = page_verdict(page, zones)
+    except Exception as exc:
+        return {"index": index, "verdict": f"error: {exc}", "kinds": []}
+    if verdict != "ok":
+        return {"index": index, "verdict": verdict, "kinds": [], "hasLayers": page.has_layers}
+    return {"index": index, "verdict": "ok", "kinds": sorted(_rule_kinds(zones)), "hasLayers": True,
+            "units": stats.get("units", 0)}
+
+
 def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],
                  room_classes: dict[str, str] | None = None,
                  storeys: int | None = None, sprinklered: bool = False) -> tuple[list[dict], list[dict]]:
@@ -123,13 +158,10 @@ def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],
     except Exception as exc:  # one bad page must not lose the others
         return [], [{"index": index, "reason": f"error: {exc}"}]
     made = [u for u, rids in zones.units.items() if rids]
-    residential = sum(1 for u in made if zones.unit_class[u] == "residential") / len(made) if made else 0.0
-    labelled_validated = sum(1 for u in made if u not in zones.function_units
-                             and zones.unit_class[u] in FIRE_VALIDATED_GROUPS) / len(made) if made else 0.0
+    residential = _residential_share(zones)
+    allowed = _rule_kinds(zones)
     for kind in kinds:
-        held = (kind == "fire" and labelled_validated < MIN_RESIDENTIAL_SHARE_FOR_RULES) or \
-               (kind == "accessibility" and residential < MIN_RESIDENTIAL_SHARE_FOR_RULES)
-        if held:
+        if kind not in allowed:
             skipped.append({"index": index, "kind": kind, "reason": "rules not validated for this building type"})
             continue
         try:
@@ -183,6 +215,24 @@ def _sheets(data: bytes, lang: str, kinds: list[str], pages: list[int] | None = 
     sheets = [s for page_sheets, _ in results for s in page_sheets]
     skipped = [s for _, page_skipped in results for s in page_skipped]
     return {"pageCount": page_count, "sheets": sheets, "skipped": skipped}
+
+
+@app.post("/plan")
+def sheet_plan(file: UploadFile = File(...)):
+    """Per page: whether geometry sheets can be drawn ("ok" or why not) and which kinds. Cheap
+    compared with /sheets (no drawing), so it runs while the drawings are first read."""
+    data = _read_upload(file)
+    try:
+        page_count = len(open_pdf(data))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read PDF: {exc}") from exc
+    workers = min(WORKERS, page_count)
+    if workers <= 1:
+        pages = [_page_plan(data, i) for i in range(page_count)]
+    else:
+        with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+            pages = list(pool.map(_page_plan, repeat(data), range(page_count)))
+    return {"pageCount": page_count, "pages": pages}
 
 
 @app.post("/sheets")
