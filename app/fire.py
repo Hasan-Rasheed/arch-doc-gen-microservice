@@ -9,8 +9,9 @@
   aren't rated.
 - Between units of different non-residential groups: Table 508.4 (separated occupancies), e.g.
   parking ↔ offices 2 h (1 h sprinklered); offices ↔ shops none. A dwelling toward any other use
-  stays the §420.2 fire partition (1 h) — the album's convention; 508.4 would make it 2 h / 1 h
-  if the designers chose separated occupancies.
+  too: 2 h without sprinklers, 1 h with — never below the §420.2 fire partition (1 h). The album
+  draws 1 h there, which is what non-separated occupancies (§508.3.3 exc. 2 → §420) allow, so
+  the fire sheet notes that alternative whenever it draws such a 2 h wall.
 Sprinklered values only when the project says it is sprinklered; the default is without — what
 the architects' album draws (1 h corridors).
 
@@ -55,6 +56,8 @@ class FireLines:
     masks: dict[str, np.ndarray]                # "2h"/"1h"/"0.5h" -> rasterized lines at `scale`
     scale: float
     half_hour: list[list[tuple[float, float]]] = field(default_factory=list)  # sprinklered corridors
+    # A dwelling ↔ other-use wall drawn 2 h by Table 508.4 (the sheet then notes the §508.3 route).
+    separated_dwelling: bool = False
 
 
 def _has(room, words) -> bool:
@@ -188,12 +191,14 @@ def _rating(kind_a: int, kind_b: int, group_a: str | None = None, group_b: str |
     if STAIR in (kind_a, kind_b):
         return "1h" if storeys is not None and storeys < 4 else "2h"
     if kind_a == UNIT and kind_b == UNIT:
-        # Dwellings from each other and from other uses: fire partitions (§420.2).
+        if group_a == group_b:
+            # Dwellings from each other: fire partitions (§420.2); rooms of one other group: none.
+            return "1h" if group_a == "residential" else None
+        separated = separation_508(group_a, group_b, sprinklered)
         if "residential" in (group_a, group_b):
-            return "1h"
-        if group_a != group_b:
-            return separation_508(group_a, group_b, sprinklered)
-        return None  # rooms of one non-residential group
+            # Toward other uses: Table 508.4, but never below the §420.2 fire partition.
+            return separated if RANK[separated] > RANK["1h"] else "1h"
+        return separated
     if UNIT in (kind_a, kind_b) and CORRIDOR in (kind_a, kind_b):
         group = group_a if kind_a == UNIT else group_b
         if not sprinklered:
@@ -261,6 +266,7 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
     # is a space of a rated pairing. Only the lower id draws a shared wall, so it's drawn once.
     h, w = part.shape
     pad = np.pad(part, 2)
+    separated_dwelling = False
     for sid in np.unique(part):
         if sid == 0:
             continue
@@ -277,6 +283,9 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
                     if o < sid:
                         continue
                     r = _rating(kinds[sid], kinds[o], group.get(sid), group.get(o), storeys, sprinklered)
+                    if r == "2h" and kinds[sid] == kinds[o] == UNIT and group.get(sid) != group.get(o) \
+                            and "residential" in (group.get(sid), group.get(o)):
+                        separated_dwelling = True
                     if RANK[r] > RANK[best]:
                         best = r
                 ratings[i] = best
@@ -293,4 +302,4 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
             cv2.polylines(m, [np.round(np.array(poly) * scale).astype(np.int32)], False, 255,
                           max(1, int(round(1.2 * scale))))
         masks[cls] = m
-    return FireLines(lines["2h"], lines["1h"], masks, scale, lines["0.5h"])
+    return FireLines(lines["2h"], lines["1h"], masks, scale, lines["0.5h"], separated_dwelling)

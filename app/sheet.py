@@ -58,6 +58,13 @@ FIRE_STYLE = {
     # Sprinklered residential corridors only (Table 1018.1); the album has no such line.
     "0.5h": {"rgb": (0.75, 0.0, 0.75), "ka": "0.5 სთ-იანი ხანძარმედეგობა", "en": "½-hour fire resistance"},
 }
+# Under the fire legend when a dwelling ↔ other-use wall is drawn 2 h (app/fire.py).
+SEPARATION_NOTE = {
+    "ka": ["ბინა / სხვა დაკავებულობა: 2 სთ (508.4 ცხრ., ავტოსაშხეფის გარეშე).",
+           "გაუმიჯნავი დაკავებულობებისას (508.3) — 1 სთ (420-ე ქვეთავი)."],
+    "en": ["Dwelling / other occupancy: 2 h (Table 508.4, not sprinklered).",
+           "If designed as non-separated occupancies (508.3): 1 h (Section 420)."],
+}
 RATED_WIDTH_PT = 1.4
 # Album route grey (0.81) is drawn under the plan there; ours goes on top, so darker and translucent.
 ROUTE_RGB = (0.45, 0.45, 0.45)
@@ -102,6 +109,7 @@ class SheetResult:
     units: list[UnitTag]
     classes: list[str]
     egress_m: list[float] = field(default_factory=list)  # longest escape routes drawn (occupancy)
+    separated_dwelling: bool = False  # fire: a dwelling ↔ other-use wall drawn 2 h (Table 508.4)
 
 
 def _font() -> fitz.Font:
@@ -317,7 +325,8 @@ def find_empty_box(ink: np.ndarray, scale: float, w_pt: float, h_pt: float, x_ma
 class LegendRow:
     label: str
     rgb: tuple[float, float, float]
-    style: str  # "hatch" (zone swatch), "line" (rated-wall line), "solid" (escape route), "fill", "circle"
+    style: str  # "hatch" (zone swatch), "line" (rated-wall line), "solid" (escape route), "fill", "circle",
+    #             "note" (text only, full width)
 
 
 def _class_label(cls: str, lang: str) -> str:
@@ -327,7 +336,9 @@ def _class_label(cls: str, lang: str) -> str:
 
 def _legend_size(title: str, rows: list[LegendRow]) -> tuple[float, float]:
     font = _font()
-    text_w = max([font.text_length(r.label, fontsize=6) for r in rows] + [font.text_length(title, fontsize=6.5)])
+    swatch_w = 26 + 5
+    text_w = max([font.text_length(r.label, fontsize=6) - (swatch_w if r.style == "note" else 0) for r in rows]
+                 + [font.text_length(title, fontsize=6.5)])
     return 6 + 26 + 5 + text_w + 6, 6 + 10 + 11 * len(rows) + 3
 
 
@@ -339,6 +350,9 @@ def _draw_legend(out: fitz.Page, x: float, y: float, title: str, rows: list[Lege
     for i, row in enumerate(rows):
         top = y + 16 + 4 + 11 * i
         sw = fitz.Rect(x + 6, top, x + 32, top + 7)
+        if row.style == "note":
+            _text(out, x + 6, top + 5.5, row.label, 6)
+            continue
         if row.style == "hatch":
             swatch = np.full((int(sw.height * 4), int(sw.width * 4)), 255, np.uint8)
             segs = [((a[0] + sw.x0, a[1] + sw.y0), (b[0] + sw.x0, b[1] + sw.y0))
@@ -465,9 +479,13 @@ def fire_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneResult
         _draw_rated_lines(out, polys[cls], FIRE_STYLE[cls]["rgb"])
     if classes:
         rows = [LegendRow(FIRE_STYLE[c][lang], FIRE_STYLE[c]["rgb"], "line") for c in classes]
+        if lines.separated_dwelling:
+            rows += [LegendRow(text, (0, 0, 0), "note") for text in SEPARATION_NOTE[lang]]
         _place_legend(out, src, index, page, LEGEND_TITLE["fire"][lang], rows)
     title_lines, number, derived = _rewrite_title(out, page, "fire", lang)
-    return SheetResult(out_doc, number, derived, title_lines, unit_tags(page, zones), classes)
+    result = SheetResult(out_doc, number, derived, title_lines, unit_tags(page, zones), classes)
+    result.separated_dwelling = lines.separated_dwelling
+    return result
 
 
 def access_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneResult,

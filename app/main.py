@@ -155,6 +155,7 @@ def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],
             "titleLines": sheet.title_lines,
             "classes": sheet.classes,
             "egressM": sheet.egress_m,
+            "separatedDwelling": sheet.separated_dwelling,
             "units": [{"name": u.name, "class": u.cls, "areaM2": u.area_m2, "measuredM2": u.measured_m2}
                       for u in sheet.units],
             "image": f"data:image/jpeg;base64,{image}",

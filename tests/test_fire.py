@@ -28,9 +28,11 @@ def test_ratings():
     # Cores: №41 §713.4 / §1022.2 — 2 h from four connected storeys, 1 h below that.
     assert _rating(UNIT, STAIR) == "2h" and _rating(CORRIDOR, STAIR) == "2h"
     assert _rating(UNIT, STAIR, storeys=6) == "2h" and _rating(UNIT, STAIR, storeys=3) == "1h"
-    # Dwellings: §420.2 fire partitions (§708.3 ≥ 1 h), also toward other uses.
+    # Dwellings: §420.2 fire partitions (§708.3 ≥ 1 h); toward other uses Table 508.4.
     assert _rating(UNIT, UNIT, "residential", "residential") == "1h"
-    assert _rating(UNIT, UNIT, "residential", "business") == "1h"
+    assert _rating(UNIT, UNIT, "residential", "business") == "2h"
+    assert _rating(UNIT, UNIT, "parking", "residential") == "2h"
+    assert _rating(UNIT, UNIT, "residential", None) == "1h"  # unknown use: the §420.2 minimum
     assert _rating(UNIT, UNIT, "business", "business") is None
     # Corridors: Table 1018.1 without sprinklers.
     assert _rating(UNIT, CORRIDOR) == "1h" and _rating(CORRIDOR, UNIT) == "1h"
