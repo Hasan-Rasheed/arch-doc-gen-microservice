@@ -140,3 +140,25 @@ def test_api_plan_matches_the_sheets():
     planned = {(p["index"], k) for p in ok for k in p["kinds"]}
     # Fire sheets can still be held back after drawing (no unit/corridor walls found).
     assert drawn <= planned and {(i, k) for i, k in planned if k != "fire"} <= drawn
+
+
+@needs_pdf
+def test_unit_outline_is_straighter_and_stays_out_of_other_rooms():
+    # 1st floor of gegmebi: the outline follows the walls (door bites closed, fixtures ignored) and
+    # never spreads into a corridor or a neighbouring room.
+    import cv2
+    from app.sheet import outline_polys, unit_outline_polys
+    page = read_page(open_pdf(SOURCE.read_bytes()), 3)
+    zones = detect_zones(page, 2.0)
+    smooth = unit_outline_polys(zones, "residential", 2.0)
+    exact = outline_polys(zones.masks["residential"], 2.0)
+    assert len(smooth) >= 6
+    assert sum(len(p) for p in smooth) < sum(len(p) for p in exact)
+    h, w = zones.labels.shape
+    for poly in smooth:
+        filled = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(filled, [np.round(np.array(poly) * 2.0).astype(np.int32)], 1)
+        inside = zones.labels[filled > 0]
+        unit_rooms = {rid for rids in zones.units.values() for rid in rids}
+        foreign = np.isin(inside, list(unit_rooms | {0}), invert=True).mean()
+        assert foreign < 0.02, foreign

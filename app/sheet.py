@@ -154,6 +154,44 @@ def outline_polys(mask: np.ndarray, scale: float, min_area_pt2: float = 30.0):
     return polys
 
 
+# The outline follows the walls, not the room's inner edges: door swings and fixtures leave bites
+# in a zone's mask that a drawn line made visible (a wavy edge the album doesn't have).
+OUTLINE_CLOSE_M = 0.45   # fills bites up to a door leaf (~0.9 m wide)
+OUTLINE_INTO_WALL_M = 0.15  # the line sits in the wall (straight), not on the room's inner face
+OUTLINE_EPS_PT = 1.5     # line simplification
+
+
+def unit_outline_polys(zones: "ZoneResult", cls: str, scale: float) -> list:
+    """One smoothed outline per unit of this class: the unit's mask grown a little into its walls
+    and closed over door bites — only into walls and doors (label 0), never into another room —
+    then simplified."""
+    mask = zones.masks.get(cls)
+    if mask is None or not mask.any():
+        return []
+    px_per_m = (1000 / zones.drawing_scale / 25.4 * 72 * scale) if zones.drawing_scale else 6 * scale
+    k = max(3, int(round(2 * OUTLINE_CLOSE_M * px_per_m)) | 1)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    free = zones.labels == 0
+    polys = []
+    for anchor, rids in zones.units.items():
+        if not rids or zones.unit_class.get(anchor) != cls:
+            continue
+        unit = (np.isin(zones.labels, rids) & (mask > 0)).astype(np.uint8)
+        if not unit.any():
+            continue
+        into = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(3, int(round(2 * OUTLINE_INTO_WALL_M * px_per_m)) | 1),) * 2)
+        walled = ((unit > 0) | ((cv2.dilate(unit, into) > 0) & free)).astype(np.uint8)
+        closed = cv2.morphologyEx(walled, cv2.MORPH_CLOSE, kernel)
+        grown = ((walled > 0) | ((closed > 0) & free)).astype(np.uint8)
+        contours, _ = cv2.findContours(grown, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for c in contours:
+            if cv2.contourArea(c) / scale / scale < 30.0:
+                continue
+            c = cv2.approxPolyDP(c, OUTLINE_EPS_PT * scale, True)
+            polys.append([(float(p[0][0]) / scale, float(p[0][1]) / scale) for p in c])
+    return polys
+
+
 def _draw_hatch(page: fitz.Page, segs, rgb, width=HATCH_WIDTH_PT) -> None:
     shape = page.new_shape()
     for a, b in segs:
@@ -441,7 +479,8 @@ def occupancy_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneR
         polys = outline_polys(zones.masks[cls], zone_scale)
         _draw_tint(out, polys, rgb)
         _draw_hatch(out, hatch_segments(zones.masks[cls], zone_scale), rgb)
-        _draw_outline(out, polys, rgb)
+        # Units not on the mask's own pieces (none in practice) keep the exact outline.
+        _draw_outline(out, unit_outline_polys(zones, cls, zone_scale) or polys, rgb)
 
     # No tags of our own: units are found by their printed name, and the sheets print the unit
     # area right beside it ("ბინა-02 | 185.2") — the album keeps that as the zone tag.
