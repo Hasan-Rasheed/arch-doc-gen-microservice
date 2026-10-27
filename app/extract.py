@@ -172,6 +172,10 @@ def read_page(doc: fitz.Document, index: int) -> PageData:
         from .styles import style_layers
         from .zones import drawing_scale
         data = style_layers(data) or data
+        if not words:
+            # No text layer (a scan): read the labels from the image.
+            from .ocr import ocr_words
+            data.words = words = ocr_words(page)
         data.walls_image = wall_mask(page_gray(page, SCALE), SCALE, drawing_scale(data), [w.bbox for w in words])
         data.has_layers = True
         data.layer_source = "image"
