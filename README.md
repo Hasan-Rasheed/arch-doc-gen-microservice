@@ -28,6 +28,8 @@ Layer vocabulary: `../Layer Dictionary.md` (human-readable) → `app/layers.py` 
 | `harness/run_fire.py` | Runs `app/fire.py` on the fire answer-key sheets, scores it, writes diffs to `out/fire/` |
 | `harness/run_access.py` | Runs `app/access.py` on the accessibility answer-key sheets, writes diffs to `out/access/` |
 | `harness/survey.py` | Every sample PDF through the service's page checks: which pages get geometry sheets, and why the rest fall back |
+| `harness/ifc_samples.py` | Test inputs from public BIM models (ifc-bench): per storey a layered PDF, a flattened PDF, a scan-like PDF and an answer key of the rooms → `Samples/Generated - …` |
+| `harness/score_rooms.py` | Room-level score against those answer keys: rooms found / merged / split / labelled, per plan and input form |
 
 ## Run (Docker; no local Python packages needed)
 

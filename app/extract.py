@@ -69,6 +69,17 @@ def _to_display(page: fitz.Page):
     return lambda p: fitz.Point(p) * m
 
 
+def _jumps(prev: tuple, cur: tuple, size: float, direction: tuple = (1.0, 0.0)) -> bool:
+    """Glyph origins that can't be neighbours in one word: another line, a move backwards, or a
+    jump of several letters — measured along the text's own direction (labels are often rotated).
+    Origins, not glyph boxes: legacy Georgian CAD fonts (AcadNusx) report boxes that don't touch
+    even inside a word."""
+    dx, dy = cur[0] - prev[0], cur[1] - prev[1]
+    ux, uy = direction
+    along, across = dx * ux + dy * uy, -dx * uy + dy * ux
+    return abs(across) > 0.5 * size or along < -0.1 * size or along > 3 * size
+
+
 def _words_from_trace(page: fitz.Page) -> list[Word]:
     """Build words from text-trace spans (they carry layer + font; get_text("words") doesn't)."""
     to_disp = _to_display(page)
@@ -94,12 +105,22 @@ def _words_from_trace(page: fitz.Page) -> list[Word]:
                               (d.x0, d.y0, d.x1, d.y1), layer, font, span.get("size", 0.0)))
             current.clear()
 
-        for uc, _gid, _origin, bbox in span["chars"]:
+        size = span.get("size", 0.0) or 1.0
+        direction = span.get("dir") or (1.0, 0.0)
+        prev_origin = None
+        for uc, _gid, origin, bbox in span["chars"]:
             ch = chr(uc)
             if ch.isspace():
                 flush()
-            else:
-                current.append((ch, bbox))
+                prev_origin = origin
+                continue
+            # A word also ends where the next glyph jumps: another line, a backward move or a gap.
+            # Some producers place stacked label lines ("OFFICE" / "114" / "27.54 m²") in one span
+            # with no space between them.
+            if current and prev_origin is not None and _jumps(prev_origin, origin, size, direction):
+                flush()
+            current.append((ch, bbox))
+            prev_origin = origin
         flush()
     return words
 

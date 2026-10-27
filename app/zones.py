@@ -311,12 +311,20 @@ def _tokens(words) -> list[str]:
     return out
 
 
+AREA_UNITS = {"მ", "კვ.მ.", "კვ.მ", "მ2", "მ²", "m", "m2", "m²", "㎡", "sqm", "sq.m.", "sq.m", "kv.m.", "kv.m"}
+GLUED_AREA = re.compile(r"^(\d+[.,]?\d*)(მ2|მ²|m2|m²|㎡|კვ\.მ\.?)$")
+
+
 def _parse_areas(tokens: list[str]) -> list[float]:
-    """Numbers immediately followed by "მ" (m², the ² is a separate "2" word) or "კვ.მ."."""
+    """Numbers followed by an area unit ("27.2 მ²", "27.54 m²", "27.2 კვ.მ.") or glued to it
+    ("27.2მ²"). On some sheets the ² is a separate "2" word after "მ"."""
     out = []
     for a, b in zip(tokens, tokens[1:]):
-        if AREA_NUMBER.match(a) and b in ("მ", "კვ.მ.", "მ2", "m", "m2", "მ²"):
+        if AREA_NUMBER.match(a) and b in AREA_UNITS:
             out.append(float(a.replace(",", ".")))
+    for t in tokens:
+        if m := GLUED_AREA.match(t):
+            out.append(float(m.group(1).replace(",", ".")))
     return out
 
 

@@ -81,13 +81,18 @@ def contains(token: str, keywords: tuple[str, ...]) -> bool:
     return any(k in t for k in keywords)
 
 
-# Words that are names when typed in Latin: lower-case letters (not codes like "W", "D1", "EXIT").
+# Words that are names when typed in Latin: lower-case letters (not codes like "W", "D1"), or a
+# capitals word of 3+ letters ("OFFICE", "CORRIDOR" — English plans label rooms in capitals)
+# that isn't a drawing code.
 LATIN_NAME = re.compile(r"[A-Za-z]*[a-z][A-Za-z]{2,}[,.]?")
+CAPS_NAME = re.compile(r"[A-Z]{3,}[,.]?")
+DRAWING_CODES = {"EXIT", "DOWN", "UP", "DN", "REF", "TYP", "SIM", "MAX", "MIN", "NTS", "EL", "ELEV.", "SEE", "DET"}
 
 
 def is_name_word(token: str) -> bool:
     """A room-name word in Georgian script, or in Latin spelling ("sadzinebeli", "Office")."""
-    return bool(re.fullmatch(r"[ა-ჰ]{3,}[,.]?", token) or LATIN_NAME.fullmatch(token)) or token.lower() == "wc"
+    return bool(re.fullmatch(r"[ა-ჰ]{3,}[,.]?", token) or LATIN_NAME.fullmatch(token)
+                or (CAPS_NAME.fullmatch(token) and token.rstrip(",.") not in DRAWING_CODES)) or token.lower() == "wc"
 
 
 def fold(text: str) -> str:

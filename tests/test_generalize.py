@@ -139,3 +139,24 @@ def test_no_style_layers_without_wall_fills():
     page.draw_line((10, 10), (100, 100), color=(0, 0, 0), width=0.6)
     data = read_page(doc, 0)
     assert not data.has_layers and data.layer_source == "pdf"
+
+
+def test_words_split_at_line_jumps_along_text_direction():
+    from app.extract import _jumps
+    # Stacked label lines in one span ("OFFICE" over "114"): another baseline → new word.
+    assert _jumps((10, 100), (12, 106.2), 6.0)
+    # Next letter on the same baseline: same word; backwards or far ahead: not.
+    assert not _jumps((10, 100), (13, 100), 6.0)
+    assert _jumps((40, 100), (10, 100), 6.0) and _jumps((10, 100), (40, 100), 6.0)
+    # Rotated labels (gegmebi's "bina-11" runs downward): letters advance along y.
+    assert not _jumps((409.3, 439.7), (409.3, 441.9), 4.2, (0.0, 1.0))
+
+
+def test_english_capitals_names_and_m2_areas():
+    from app.acadnusx import is_name_word
+    from app.zones import _parse_areas
+    assert is_name_word("OFFICE") and is_name_word("CORRIDOR") and not is_name_word("EXIT")
+    assert not is_name_word("D1") and not is_name_word("W")
+    assert _parse_areas(["27.54", "m²"]) == [27.54]
+    assert _parse_areas(["18,6", "მ²"]) == [18.6]
+    assert _parse_areas(["12.3m²"]) == [12.3]
