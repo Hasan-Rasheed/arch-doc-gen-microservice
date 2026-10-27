@@ -55,7 +55,10 @@ class PageData:
     layers: dict[str, LayerInfo]
     words: list[Word]
     drawings: list[dict] = field(repr=False)  # PyMuPDF drawings, points already in display space
-    layer_source: str = "pdf"  # "pdf" (CAD layers) or "style" (recognised by line style, styles.py)
+    layer_source: str = "pdf"  # "pdf" (CAD layers), "style" (line style, styles.py) or "image"
+    # Wall mask from the page image (image_walls.py) at image_walls.SCALE, for pages without CAD
+    # layers; boundary_mask uses it instead of the drawings.
+    walls_image: np.ndarray | None = field(default=None, repr=False)
 
 
 def open_pdf(source: str | Path | bytes) -> fitz.Document:
@@ -163,8 +166,15 @@ def read_page(doc: fitz.Document, index: int) -> PageData:
     data = PageData(index, page.rect.width, page.rect.height, page.rotation, has_layers,
                     layers, words, drawings)
     if not has_layers:
-        from .styles import style_layers  # no CAD layers: recognise walls by how they're drawn
+        # No CAD layers (flat export, print to PDF, scan): walls from the page image; line-style
+        # layers still name the pens (doors, rails) where the drawing is vector.
+        from .image_walls import SCALE, page_gray, wall_mask
+        from .styles import style_layers
+        from .zones import drawing_scale
         data = style_layers(data) or data
+        data.walls_image = wall_mask(page_gray(page, SCALE), SCALE, drawing_scale(data), [w.bbox for w in words])
+        data.has_layers = True
+        data.layer_source = "image"
     return data
 
 
@@ -239,7 +249,11 @@ def rasterize(page: PageData, scale: float, categories: set[str] | None = None,
 
 
 def boundary_mask(page: PageData, scale: float) -> np.ndarray:
-    """Room boundaries: walls, columns, doors, windows, rails, and wall mass (hatch/solid fill)."""
+    """Room boundaries: walls, columns, doors, windows, rails, and wall mass (hatch/solid fill) —
+    from the CAD layers, or from the page image when there are none."""
+    if page.walls_image is not None:
+        size = (int(round(page.width * scale)), int(round(page.height * scale)))
+        return cv2.resize(page.walls_image, size, interpolation=cv2.INTER_NEAREST)
     return rasterize(page, scale, BOUNDARY | {"WALL_FILL"}, min_px=2)
 
 
@@ -260,6 +274,7 @@ def summary(page: PageData) -> dict:
         "height": page.height,
         "rotation": page.rotation,
         "hasLayers": page.has_layers,
+        "layerSource": page.layer_source,
         "layers": [
             {"name": i.name, "category": i.cls.category, "confidence": i.cls.confidence,
              "reason": i.cls.reason, "paths": i.paths, "texts": i.texts}

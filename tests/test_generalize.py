@@ -127,18 +127,38 @@ def test_walls_recognised_by_style_without_layers():
     for i in range(60):  # furniture pen, away from the walls
         page.draw_line((50 + i * 8, 300), (54 + i * 8, 340), color=(0, 0, 0), width=0.24)
     data = read_page(doc, 0)
-    assert data.has_layers and data.layer_source == "style"
+    # Walls come from the page image; the line-style layers still name the pens.
+    assert data.has_layers and data.layer_source == "image" and data.walls_image is not None
     cats = {n: l.cls.category for n, l in data.layers.items()}
     assert cats["~fill"] == "WALL_FILL" and cats["~wall-0.60"] == "WALL" and cats["~stroke-0.24"] == "UNKNOWN"
 
 
-def test_no_style_layers_without_wall_fills():
+def test_no_walls_from_a_thin_line_without_layers():
+    """Without wall fills there are no line-style layers, and a lone thin line isn't a wall."""
     from app.extract import read_page
     doc = fitz.open()
     page = doc.new_page(width=600, height=400)
     page.draw_line((10, 10), (100, 100), color=(0, 0, 0), width=0.6)
     data = read_page(doc, 0)
-    assert not data.has_layers and data.layer_source == "pdf"
+    assert data.layer_source == "image" and not any(n.startswith("~") for n in data.layers)
+    assert not data.walls_image.any()
+
+
+def test_walls_from_image_close_rooms_through_doorways():
+    """A flat (no layers) plan of two rooms with a doorway between them: two rooms, not one."""
+    from app.extract import read_page
+    from app.zones import detect_zones
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=400)
+    page.insert_text((20, 390), "M 1:100", fontsize=8)
+    w = 6  # 0.2 m wall at 1:100 ≈ 5.7 pt
+    for r in [(100, 100, 500, 100 + w), (100, 300 - w, 500, 300), (100, 100, 100 + w, 300),
+              (500 - w, 100, 500, 300), (300, 100, 300 + w, 180), (300, 210, 300 + w, 300)]:  # doorway 0.85 m
+        page.draw_rect(fitz.Rect(*r), color=None, fill=(0, 0, 0))
+    data = read_page(doc, 0)
+    zones = detect_zones(data, 2.0)
+    inside = [r for r in zones.rooms.values() if r.area_pt2 > 10000]
+    assert len(inside) == 2
 
 
 def test_words_split_at_line_jumps_along_text_direction():
