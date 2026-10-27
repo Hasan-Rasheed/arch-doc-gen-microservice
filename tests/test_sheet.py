@@ -9,7 +9,7 @@ from app.extract import open_pdf, read_page
 from app.main import app
 from app.sheet import CLASS_STYLE, find_empty_box, hatch_segments, occupancy_sheet, printed_unit_area, title_block
 from app.zones import detect_zones
-from harness.samples import GEGMEBI
+from harness.samples import GEGMEBI, HOTEL
 
 SOURCE = GEGMEBI
 
@@ -161,3 +161,18 @@ def test_unit_outline_is_straighter_and_stays_out_of_other_rooms():
         unit_rooms = {rid for rids in zones.units.values() for rid in rids}
         foreign = np.isin(inside, list(unit_rooms | {0}), invert=True).mean()
         assert foreign < 0.02, foreign
+
+
+@pytest.mark.skipif(not HOTEL.exists(), reason="sample PDFs not mounted")
+def test_api_plan_asks_about_unknown_rooms_and_uses_the_answer():
+    """The Review step's plan: a hotel floor is held back with its room names; with the
+    classifier's answer (hotel rooms are transient units) it gets all three sheet kinds."""
+    import json
+    client = TestClient(app)
+    data = HOTEL.read_bytes()
+    first = client.post("/plan", files={"file": ("hotel.pdf", data, "application/pdf")}).json()["pages"][0]
+    assert first["verdict"] != "ok" and first["unclassifiedNames"]
+    classes = {n: "unit:transient" for n in first["unclassifiedNames"] if "ნომერი" in n}
+    again = client.post("/plan", files={"file": ("hotel.pdf", data, "application/pdf")},
+                        data={"pages": "0", "room_classes": json.dumps(classes)}).json()["pages"]
+    assert again[0]["verdict"] == "ok" and set(again[0]["kinds"]) == {"occupancy", "fire", "accessibility"}

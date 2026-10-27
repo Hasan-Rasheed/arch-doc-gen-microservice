@@ -123,18 +123,23 @@ def _rule_kinds(zones: ZoneResult) -> set[str]:
     return kinds
 
 
-def _page_plan(data: bytes, index: int) -> dict:
+def _page_plan(data: bytes, index: int, room_classes: dict[str, str] | None = None) -> dict:
     """Which sheet kinds this page would get from geometry, without drawing them (the Review
-    step's diagram list). Runs in a worker process like _page_sheets."""
+    step's diagram list). Runs in a worker process like _page_sheets. A held-back page lists its
+    unknown room names, like /sheets, so the backend can classify them and ask again."""
     try:
         doc = open_pdf(data)
         page = read_page(doc, index)
-        zones = detect_zones(page, ZONE_SCALE) if page.has_layers else None
+        zones = detect_zones(page, ZONE_SCALE, room_classes) if page.has_layers else None
         verdict, stats = page_verdict(page, zones)
     except Exception as exc:
         return {"index": index, "verdict": f"error: {exc}", "kinds": []}
     if verdict != "ok":
-        return {"index": index, "verdict": verdict, "kinds": [], "hasLayers": page.has_layers}
+        entry = {"index": index, "verdict": verdict, "kinds": [], "hasLayers": page.has_layers}
+        names = unclassified_names(zones) if zones is not None else []
+        if names:
+            entry["unclassifiedNames"] = names
+        return entry
     return {"index": index, "verdict": "ok", "kinds": sorted(_rule_kinds(zones)), "hasLayers": True,
             "units": stats.get("units", 0)}
 
@@ -221,21 +226,36 @@ def _sheets(data: bytes, lang: str, kinds: list[str], pages: list[int] | None = 
 
 
 @app.post("/plan")
-def sheet_plan(file: UploadFile = File(...)):
+def sheet_plan(file: UploadFile = File(...), pages: str = Form(""), room_classes: str = Form("")):
     """Per page: whether geometry sheets can be drawn ("ok" or why not) and which kinds. Cheap
-    compared with /sheets (no drawing), so it runs while the drawings are first read."""
+    compared with /sheets (no drawing), so it runs while the drawings are first read. With
+    `room_classes` (the classifier's answers) and `pages`, held-back pages are checked again."""
     data = _read_upload(file)
     try:
         page_count = len(open_pdf(data))
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not read PDF: {exc}") from exc
-    workers = min(WORKERS, page_count)
+    page_list = [int(p) for p in pages.split(",") if p.strip().isdigit()] if pages.strip() else None
+    indices = [i for i in (page_list if page_list is not None else range(page_count)) if 0 <= i < page_count]
+    classes = _room_classes(room_classes)
+    workers = min(WORKERS, len(indices))
     if workers <= 1:
-        pages = [_page_plan(data, i) for i in range(page_count)]
+        out = [_page_plan(data, i, classes) for i in indices]
     else:
         with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
-            pages = list(pool.map(_page_plan, repeat(data), range(page_count)))
-    return {"pageCount": page_count, "pages": pages}
+            out = list(pool.map(_page_plan, repeat(data), indices, repeat(classes)))
+    return {"pageCount": page_count, "pages": out}
+
+
+def _room_classes(raw: str) -> dict[str, str] | None:
+    """The classifier's {room name: class} as sent by the backend: keys folded once (any spelling
+    of a name matches), unknown classes dropped."""
+    try:
+        given = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"room_classes must be JSON: {exc}") from exc
+    classes = {fold(str(k)): v for k, v in given.items() if v in EXTRA_CLASSES} if isinstance(given, dict) else {}
+    return classes or None
 
 
 @app.post("/sheets")
@@ -254,16 +274,11 @@ def derivative_sheets(file: UploadFile = File(...), lang: str = Form("ka"),
     if not wanted or any(k not in SHEET_KINDS for k in wanted):
         raise HTTPException(status_code=422, detail=f"kinds must be a comma list of {sorted(SHEET_KINDS)}.")
     page_list = [int(p) for p in pages.split(",") if p.strip().isdigit()] if pages.strip() else None
-    try:
-        given = json.loads(room_classes) if room_classes.strip() else {}
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"room_classes must be JSON: {exc}") from exc
-    # Keys folded once here (any spelling of a name matches); unknown classes dropped.
-    classes = {fold(str(k)): v for k, v in given.items() if v in EXTRA_CLASSES} if isinstance(given, dict) else {}
+    classes = _room_classes(room_classes)
     # Storeys the stair cores connect (basements included) — 2 h cores from four up (№41 §713.4).
     n_storeys = int(storeys) if storeys.strip().isdigit() else None
     # Sprinklered building (the project says so): Table 1018.1 / 508.4 sprinklered values.
-    return _sheets(_read_upload(file), lang, wanted, page_list, classes or None, n_storeys,
+    return _sheets(_read_upload(file), lang, wanted, page_list, classes, n_storeys,
                    sprinklered.strip().lower() in ("1", "true", "yes"))
 
 

@@ -11,6 +11,8 @@ GEGMEBI = SAMPLES / "Gegmebi - Sample 3" / "gegmebi input.pdf"
 GEGMEBI_ALBUM = SAMPLES / "Gegmebi - Sample 3" / "gegmebi output.pdf"
 # Single pages cut from the Bochorma №11 album (Sample 1/Output.pdf), e.g. "42 Grand Master.pdf".
 BOCHORMA_PAGES = SAMPLES / "Sample 1"
+# One hotel floor, layered, from the client (rooms named "სასტუმროს ნომერი … Room").
+HOTEL = SAMPLES / "samushao - Sample 6" / "samushao nazaxi msheneblebistvis_ 25.08.2026 1.pdf"
 
 
 def is_album(path: Path) -> bool:
