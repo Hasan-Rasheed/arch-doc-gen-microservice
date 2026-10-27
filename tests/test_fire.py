@@ -1,5 +1,4 @@
 """Fire-rated walls vs the architects' fire sheets (gegmebi → album p.39-44), and the fire sheet."""
-from pathlib import Path
 
 import pytest
 
@@ -9,10 +8,10 @@ from app.sheet import fire_sheet
 from app.zones import Room, detect_zones
 from harness.answer_key import match_source_page, to_source_coords
 from harness.fire_key import fire_truth, line_score
+from harness.samples import GEGMEBI, GEGMEBI_ALBUM
 
-ROOT = Path(__file__).resolve().parents[2]
-TARGET = ROOT / "Documents Generated" / "DownloadServlet (1).pdf"
-SOURCE = ROOT / "Sample Input Diagrams & Description input" / "gegmebi (2).pdf"
+TARGET = GEGMEBI_ALBUM
+SOURCE = GEGMEBI
 needs_pdfs = pytest.mark.skipif(not (TARGET.exists() and SOURCE.exists()), reason="sample PDFs not mounted")
 
 SCALE = 2.0

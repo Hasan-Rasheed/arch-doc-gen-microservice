@@ -1,13 +1,11 @@
-from pathlib import Path
 
 import cv2
 import numpy as np
 import pytest
 
 from app.extract import boundary_mask, open_pdf, read_page, render
+from harness.samples import GEGMEBI
 
-ROOT = Path(__file__).resolve().parents[2]
-GEGMEBI = ROOT / "Sample Input Diagrams & Description input" / "gegmebi (2).pdf"
 
 pytestmark = pytest.mark.skipif(not GEGMEBI.exists(), reason="sample PDFs not mounted")
 

@@ -5,12 +5,12 @@ accessibility markup on dedicated layers. Removing those layers' graphics gives 
 pipeline would receive (room text is kept — labels are part of any plan), and the markup is the
 truth to score against.
 
-    python -m harness.second_key --samples "/work/Sample Input Diagrams & Description input"
+    python -m harness.second_key
 
-- 42 Grand Master (office building, other office): rated walls (blue on "41"/"000-41"; 1-hour
+- Sample 1 / 42 Grand Master (Bochorma №11 office floor): rated walls (blue on "41"/"000-41"; 1-hour
   and 2-hour differ only in dash rhythm, so they're scored together) + accessible route (light-
   blue fills).
-- new/ (clinic): 2-hour wall lines (blue on "!კედლის საათები - 2 საათი") + accessible route.
+- Ardstudio LLC - Sample 2 (clinic): 2-hour wall lines (blue on "!კედლის საათები - 2 საათი") + accessible route.
 """
 
 import argparse
@@ -28,6 +28,7 @@ from app.main import page_verdict
 from app.zones import detect_zones
 from .answer_key import _close, _color_of, _layer_subset, building_extent
 from .fire_key import area_score, line_score
+from harness.samples import SAMPLES
 
 
 def _layer(d: dict) -> str:
@@ -52,11 +53,12 @@ class Key:
     route_rgb: tuple[float, float, float]
 
 
+CLINIC = "Ardstudio LLC - Sample 2"
 KEYS = [
-    Key("42 Grand Master.pdf", 1, ("41", "000-41"), (0.0, 0.0, 1.0), "misawvdomoba", (0.5, 0.76, 1.0)),
+    Key("Sample 1/42 Grand Master.pdf", 1, ("41", "000-41"), (0.0, 0.0, 1.0), "misawvdomoba", (0.5, 0.76, 1.0)),
     *[Key(f, 1, ("!კედლის საათები - 2 საათი - ლაინებში",), (0.0, 0.0, 1.0), "მისაწვდომობა", (0.69, 0.69, 0.71))
-      for f in ("new/2. -1    -25,05,26.pdf", "new/3. 1  25,05,26.pdf", "new/4. 2   25,05,26.pdf",
-                "new/5. 3.pdf", "new/7. 5.pdf")],
+      for f in (f"{CLINIC}/2. -1    -25,05,26.pdf", f"{CLINIC}/3. 1  25,05,26.pdf", f"{CLINIC}/4. 2   25,05,26.pdf",
+                f"{CLINIC}/5. 3.pdf", f"{CLINIC}/7. 5.pdf")],
 ]
 
 
@@ -90,7 +92,7 @@ def evaluate(samples: Path, key: Key, scale: float) -> dict:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--samples", required=True)
+    ap.add_argument("--samples", default=str(SAMPLES))
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--out", default="out/second_key")
     args = ap.parse_args()

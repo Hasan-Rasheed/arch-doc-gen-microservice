@@ -2,7 +2,7 @@
 get geometry sheets or fall back to the AI — and why. The answer to "does this work beyond the
 one project it was tuned on", measured instead of promised.
 
-    python -m harness.survey --samples "/work/Sample Input Diagrams & Description input"
+    python -m harness.survey            # every input under Samples/ (albums left out)
 
 Writes out/survey/survey.json and prints one line per page plus a per-set summary.
 """
@@ -16,32 +16,24 @@ from pathlib import Path
 from app.extract import open_pdf, read_page
 from app.main import page_verdict
 from app.zones import detect_zones
+from harness.samples import SAMPLES, inputs, project
 
 
-def sample_set(name: str) -> str:
-    """Group files the way they came: gegmebi, the new/ folder, the Master files, the rest."""
-    if name.startswith("new/"):
-        return "new/"
-    if "Master" in name:
-        return "Master / Grand Master"
-    return name.rsplit(".", 1)[0]
-
-
-def survey(samples: Path, scale: float = 1.0) -> list[dict]:
+def survey(samples: Path = SAMPLES, scale: float = 1.0) -> list[dict]:
     rows = []
-    for path in sorted(samples.rglob("*.pdf")):
+    for path in inputs(samples):
         name = str(path.relative_to(samples))
         try:
             doc = open_pdf(path)
         except Exception as exc:
-            rows.append({"file": name, "set": sample_set(name), "page": None, "verdict": f"unreadable: {exc}"})
+            rows.append({"file": name, "set": project(path, samples), "page": None, "verdict": f"unreadable: {exc}"})
             continue
         for i in range(len(doc)):
             t = time.time()
             page = read_page(doc, i)
             zones = detect_zones(page, scale) if page.has_layers else None
             verdict, stats = page_verdict(page, zones)
-            rows.append({"file": name, "set": sample_set(name), "page": i + 1, "verdict": verdict,
+            rows.append({"file": name, "set": project(path, samples), "page": i + 1, "verdict": verdict,
                          **stats, "seconds": round(time.time() - t, 1)})
     return rows
 
@@ -60,7 +52,7 @@ def summary(rows: list[dict]) -> dict[str, dict]:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--samples", required=True)
+    ap.add_argument("--samples", default=str(SAMPLES))
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--out", default="out/survey")
     args = ap.parse_args()
@@ -70,7 +62,7 @@ def main():
               + " ".join(f"{k}={v}" for k, v in r.items() if k not in ("file", "set", "page", "verdict")))
     print()
     for name, s in summary(rows).items():
-        print(f"{name:28} {s['geometry']:3}/{s['pages']:<3} pages get geometry sheets   {s['reasons']}")
+        print(f"{name:32} {s['geometry']:3}/{s['pages']:<3} pages get geometry sheets   {s['reasons']}")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "survey.json").write_text(json.dumps({"rows": rows, "summary": summary(rows)}, indent=1, ensure_ascii=False))

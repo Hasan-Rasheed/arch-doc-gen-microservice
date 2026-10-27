@@ -1,14 +1,12 @@
 """Rules added so plans from other offices work (N2): cores without labels, doors on wall
 layers, scale without "1:100" text, unit numbers drawn glyph by glyph."""
-from pathlib import Path
 
 import fitz
 import pytest
 
 from app.extract import Word, read_page
 from app.zones import Room, _drawn_doors, _has_step_numbers, _unit_id, detect_zones, scale_from_areas
-
-SAMPLES = Path(__file__).resolve().parents[2] / "Sample Input Diagrams & Description input"
+from harness.samples import GEGMEBI
 
 
 def test_step_numbers():
@@ -55,10 +53,10 @@ def test_door_arc_on_wall_layer_is_a_door():
     assert len(_drawn_doors(data, pt_per_m=5.0).drawings) == 0  # same arc is far too big at 1:600
 
 
-@pytest.mark.skipif(not SAMPLES.exists(), reason="sample PDFs not mounted")
+@pytest.mark.skipif(not GEGMEBI.exists(), reason="sample PDFs not mounted")
 def test_gegmebi_duplex_stair_stays_in_the_apartment():
     from app.extract import open_pdf
-    page = read_page(open_pdf(SAMPLES / "gegmebi (2).pdf"), 1)
+    page = read_page(open_pdf(GEGMEBI), 1)
     zones = detect_zones(page, 1.0)
     cores = [r for r in zones.rooms.values() if r.core]
     assert len(cores) >= 2 and not any(r.unit for r in cores)

@@ -5,20 +5,18 @@ only runs with RUN_SURVEY=1.
 When a change makes more pages work, raise the floor in MIN_GEOMETRY_PAGES.
 """
 import os
-from pathlib import Path
-
 import pytest
 
+from harness.samples import SAMPLES
 from harness.survey import summary, survey
 
-SAMPLES = Path(__file__).resolve().parents[2] / "Sample Input Diagrams & Description input"
 pytestmark = [
     pytest.mark.skipif(not SAMPLES.exists(), reason="sample PDFs not mounted"),
     pytest.mark.skipif(os.environ.get("RUN_SURVEY") != "1", reason="slow; set RUN_SURVEY=1"),
 ]
 
 # Pages per sample set that must get geometry sheets (at the time of writing).
-MIN_GEOMETRY_PAGES = {"gegmebi (2)": 6}
+MIN_GEOMETRY_PAGES = {"Gegmebi - Sample 3": 6}
 
 
 @pytest.fixture(scope="module")

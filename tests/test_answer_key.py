@@ -1,4 +1,3 @@
-from pathlib import Path
 
 import pytest
 
@@ -6,10 +5,10 @@ from app.extract import open_pdf, read_page
 from harness.answer_key import match_source_page, occupancy_truth, to_source_coords
 from harness.build import rectangles_of
 from harness.score import score
+from harness.samples import GEGMEBI, GEGMEBI_ALBUM
 
-ROOT = Path(__file__).resolve().parents[2]
-TARGET = ROOT / "Documents Generated" / "DownloadServlet (1).pdf"
-SOURCE = ROOT / "Sample Input Diagrams & Description input" / "gegmebi (2).pdf"
+TARGET = GEGMEBI_ALBUM
+SOURCE = GEGMEBI
 
 pytestmark = pytest.mark.skipif(not (TARGET.exists() and SOURCE.exists()), reason="sample PDFs not mounted")
 

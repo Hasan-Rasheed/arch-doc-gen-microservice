@@ -1,5 +1,4 @@
 """Occupancy sheets drawn on the original gegmebi sheets, and the API around them."""
-from pathlib import Path
 
 import fitz
 import numpy as np
@@ -10,9 +9,9 @@ from app.extract import open_pdf, read_page
 from app.main import app
 from app.sheet import CLASS_STYLE, find_empty_box, hatch_segments, occupancy_sheet, printed_unit_area, title_block
 from app.zones import detect_zones
+from harness.samples import GEGMEBI
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "Sample Input Diagrams & Description input" / "gegmebi (2).pdf"
+SOURCE = GEGMEBI
 
 needs_pdf = pytest.mark.skipif(not SOURCE.exists(), reason="sample PDFs not mounted")
 SCALE = 1.0

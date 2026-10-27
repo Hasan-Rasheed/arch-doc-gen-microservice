@@ -1,6 +1,5 @@
 """Second-building answer keys (harness/second_key.py): the keys exist, the raw-plan simulation
 removes only derivative graphics, and how far Grand Master 42 gets."""
-from pathlib import Path
 
 import pytest
 
@@ -8,8 +7,9 @@ from app.extract import open_pdf, read_page
 from app.main import page_verdict
 from app.zones import detect_zones
 from harness.second_key import KEYS, strip_derivatives, truth
+from harness.samples import BOCHORMA_PAGES
 
-SAMPLES = Path(__file__).resolve().parents[2] / "Sample Input Diagrams & Description input"
+SAMPLES = BOCHORMA_PAGES
 pytestmark = pytest.mark.skipif(not SAMPLES.exists(), reason="sample PDFs not mounted")
 
 

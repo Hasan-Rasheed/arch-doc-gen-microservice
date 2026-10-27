@@ -39,19 +39,19 @@ RUN='docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/work -w 
 
 eval $RUN python -m pytest -q -p no:cacheprovider tests
 eval $RUN python -m harness.build \
-  --target "/work/Documents Generated/DownloadServlet (1).pdf" \
-  --source "/work/Sample Input Diagrams & Description input/gegmebi (2).pdf"
+  --target "/work/Samples/Gegmebi - Sample 3/gegmebi output.pdf" \
+  --source "/work/Samples/Gegmebi - Sample 3/gegmebi input.pdf"
 
-eval $RUN python -m harness.survey --samples "/work/Sample Input Diagrams & Description input"
+eval $RUN python -m harness.survey
 eval $RUN env RUN_SURVEY=1 python -m pytest -q -p no:cacheprovider tests/test_samples.py   # slow
 
 eval $RUN python -m harness.run_zones \
-  --source "/work/Sample Input Diagrams & Description input/gegmebi (2).pdf"
+  --source "/work/Samples/Gegmebi - Sample 3/gegmebi input.pdf"
 
 # API on :8090
 docker run --rm -p 8090:8090 archidocgen-geometry:dev
-curl -F "file=@Sample Input Diagrams & Description input/gegmebi (2).pdf" localhost:8090/extract
-curl -F "file=@Sample Input Diagrams & Description input/gegmebi (2).pdf" -F lang=ka -F kinds=occupancy,fire,accessibility localhost:8090/sheets
+curl -F "file=@Samples/Gegmebi - Sample 3/gegmebi input.pdf" localhost:8090/extract
+curl -F "file=@Samples/Gegmebi - Sample 3/gegmebi input.pdf" -F lang=ka -F kinds=occupancy,fire,accessibility localhost:8090/sheets
 ```
 
 ## Used by the backend
