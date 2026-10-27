@@ -47,9 +47,22 @@ ACCESSORY = folded((
 ))
 
 
-# Classes an external classifier (the backend's LLM step) may assign to a room name.
-EXTRA_CLASSES = {"residential", "business", "mercantile", "assembly", "institutional", "educational",
-                 "factory", "storage", "parking", "accessory", "circulation"}
+# Occupancy groups. "transient" is სც-1 (hotels, hostels); "residential" is სც-2 (apartments).
+GROUPS = {"residential", "transient", "business", "mercantile", "assembly", "institutional", "educational",
+          "factory", "storage", "parking"}
+# Dwellings: fire partitions between them (§420.2) and the accessibility rules apply to both.
+DWELLING = {"residential", "transient"}
+
+# What an external classifier (the backend's LLM step) may say about a room name: its group (a
+# function room), "unit:<group>" (the room is a separately occupied unit — an apartment, hotel
+# room, office suite, shop — so a zone starts there in any building, whatever it's called),
+# "accessory" (a support room) or "circulation".
+EXTRA_CLASSES = GROUPS | {f"unit:{g}" for g in GROUPS} | {"accessory", "circulation"}
+
+
+def unit_role(cls: str | None) -> str | None:
+    """The group of a "unit:<group>" classification, else None."""
+    return cls[5:] if cls and cls.startswith("unit:") else None
 
 
 def room_name(words: list[str]) -> str:

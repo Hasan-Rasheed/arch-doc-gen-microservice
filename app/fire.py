@@ -28,6 +28,7 @@ import numpy as np
 from .acadnusx import contains, folded, is_name_word
 from .extract import PageData, boundary_mask, rasterize
 from .layers import BOUNDARY
+from .functions import DWELLING
 from .zones import ZoneResult, door_mask, room_window
 
 STAIR_WORDS = folded(("კიბ", "საფეხურ", "stair"))                 # stair, step
@@ -157,7 +158,7 @@ def _partition(zones: ZoneResult, space_of, envelope: np.ndarray):
 # Table 508.4 (№41 = IBC 2012), hours (sprinklered, not sprinklered); None = no separation,
 # "NP" = not permitted next to each other. Our classes → the table's groups.
 GROUP_508 = {
-    "assembly": "AE", "educational": "AE", "institutional": "I", "residential": "R",
+    "assembly": "AE", "educational": "AE", "institutional": "I", "residential": "R", "transient": "R",
     "parking": "S2", "business": "B", "mercantile": "B", "storage": "B", "factory": "B",
 }
 TABLE_508_4 = {
@@ -191,11 +192,11 @@ def _rating(kind_a: int, kind_b: int, group_a: str | None = None, group_b: str |
     if STAIR in (kind_a, kind_b):
         return "1h" if storeys is not None and storeys < 4 else "2h"
     if kind_a == UNIT and kind_b == UNIT:
-        if group_a == group_b:
+        if group_a == group_b or {group_a, group_b} <= DWELLING:
             # Dwellings from each other: fire partitions (§420.2); rooms of one other group: none.
-            return "1h" if group_a == "residential" else None
+            return "1h" if group_a in DWELLING else None
         separated = separation_508(group_a, group_b, sprinklered)
-        if "residential" in (group_a, group_b):
+        if group_a in DWELLING or group_b in DWELLING:
             # Toward other uses: Table 508.4, but never below the §420.2 fire partition.
             return separated if RANK[separated] > RANK["1h"] else "1h"
         return separated
@@ -203,7 +204,7 @@ def _rating(kind_a: int, kind_b: int, group_a: str | None = None, group_b: str |
         group = group_a if kind_a == UNIT else group_b
         if not sprinklered:
             return "1h"
-        return "0.5h" if group == "residential" else None
+        return "0.5h" if group in DWELLING else None
     return None
 
 
@@ -284,7 +285,7 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
                         continue
                     r = _rating(kinds[sid], kinds[o], group.get(sid), group.get(o), storeys, sprinklered)
                     if r == "2h" and kinds[sid] == kinds[o] == UNIT and group.get(sid) != group.get(o) \
-                            and "residential" in (group.get(sid), group.get(o)):
+                            and (group.get(sid) in DWELLING or group.get(o) in DWELLING):
                         separated_dwelling = True
                     if RANK[r] > RANK[best]:
                         best = r

@@ -13,7 +13,7 @@ from .extract import PageData, open_pdf, read_page, read_pdf, summary
 from .sheet import access_sheet, fire_sheet, occupancy_sheet, to_jpeg
 from .acadnusx import fold
 from .fire import _open_air
-from .functions import EXTRA_CLASSES, is_accessory, room_name
+from .functions import DWELLING, EXTRA_CLASSES, is_accessory, room_name
 from .zones import ZoneResult, detect_zones
 
 app = FastAPI(title="ArchiDocGen geometry service")
@@ -38,7 +38,7 @@ MIN_NAMED_COVERAGE = 0.75
 # - accessibility: dwelling floors only (Grand Master 42's route came out nearly empty).
 MIN_RESIDENTIAL_SHARE_FOR_RULES = 0.5
 RULE_KINDS = {"fire", "accessibility"}
-FIRE_VALIDATED_GROUPS = {"residential", "business"}
+FIRE_VALIDATED_GROUPS = DWELLING | {"business"}
 
 
 def _read_upload(file: UploadFile) -> bytes:
@@ -97,7 +97,7 @@ def unclassified_names(zones: ZoneResult, limit: int = 60) -> list[str]:
     names = []
     for r in zones.rooms.values():
         if r.inside and r.has_name and r.labeled_areas and not (r.unit or r.circulation or r.core or r.function
-                                                                or r.accessory):
+                                                                or r.accessory or _open_air(r)):
             n = room_name(r.words)
             if n and n not in names and not is_accessory(r.words):
                 names.append(n)
@@ -106,7 +106,7 @@ def unclassified_names(zones: ZoneResult, limit: int = 60) -> list[str]:
 
 def _residential_share(zones: ZoneResult) -> float:
     made = [u for u, rids in zones.units.items() if rids]
-    return sum(1 for u in made if zones.unit_class[u] == "residential") / len(made) if made else 0.0
+    return sum(1 for u in made if zones.unit_class[u] in DWELLING) / len(made) if made else 0.0
 
 
 def _rule_kinds(zones: ZoneResult) -> set[str]:
@@ -152,8 +152,11 @@ def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],
         verdict, _ = page_verdict(page, zones)
         if verdict != "ok":
             entry = {"index": index, "reason": verdict}
-            if verdict == "most rooms not in units":
-                entry["unclassifiedNames"] = unclassified_names(zones)
+            # Any failed page with real rooms: the backend asks the LLM about their names and
+            # retries — a building whose rooms no word list knows starts here.
+            names = unclassified_names(zones) if zones is not None else []
+            if names:
+                entry["unclassifiedNames"] = names
             return [], [entry]
     except Exception as exc:  # one bad page must not lose the others
         return [], [{"index": index, "reason": f"error: {exc}"}]

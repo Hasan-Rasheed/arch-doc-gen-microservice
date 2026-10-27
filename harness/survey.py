@@ -3,6 +3,11 @@ get geometry sheets or fall back to the AI — and why. The answer to "does this
 one project it was tuned on", measured instead of promised.
 
     python -m harness.survey            # every input under Samples/ (albums left out)
+    python -m harness.survey --classes harness/room_classes.json   # + the LLM's room classes
+
+With --classes, a failed page with unknown room names is checked again with the classifier's
+answers, as the backend does (classifyRoomNames → /sheets retry). The file holds the LLM's real
+answers ({room name: class}), refreshed by the backend script `npm run classify:samples`.
 
 Writes out/survey/survey.json and prints one line per page plus a per-set summary.
 """
@@ -14,12 +19,13 @@ from collections import defaultdict
 from pathlib import Path
 
 from app.extract import open_pdf, read_page
-from app.main import page_verdict
+from app.acadnusx import fold
+from app.main import page_verdict, unclassified_names
 from app.zones import detect_zones
 from harness.samples import SAMPLES, inputs, project
 
 
-def survey(samples: Path = SAMPLES, scale: float = 1.0) -> list[dict]:
+def survey(samples: Path = SAMPLES, scale: float = 1.0, classes: dict[str, str] | None = None) -> list[dict]:
     rows = []
     for path in inputs(samples):
         name = str(path.relative_to(samples))
@@ -33,8 +39,16 @@ def survey(samples: Path = SAMPLES, scale: float = 1.0) -> list[dict]:
             page = read_page(doc, i)
             zones = detect_zones(page, scale) if page.has_layers else None
             verdict, stats = page_verdict(page, zones)
+            unknown = unclassified_names(zones) if zones is not None and verdict != "ok" else []
+            classified = False
+            if unknown and classes:
+                folded = {fold(k): v for k, v in classes.items()}
+                zones = detect_zones(page, scale, folded)
+                verdict, stats = page_verdict(page, zones)
+                classified = True
             rows.append({"file": name, "set": project(path, samples), "page": i + 1, "verdict": verdict,
-                         **stats, "seconds": round(time.time() - t, 1)})
+                         **stats, "classified": classified, "unknown": unknown,
+                         "seconds": round(time.time() - t, 1)})
     return rows
 
 
@@ -54,12 +68,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", default=str(SAMPLES))
     ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--classes", help="JSON {room name: class} from the LLM")
     ap.add_argument("--out", default="out/survey")
     args = ap.parse_args()
-    rows = survey(Path(args.samples), args.scale)
+    classes = json.loads(Path(args.classes).read_text()) if args.classes else None
+    rows = survey(Path(args.samples), args.scale, classes)
     for r in rows:
         print(f"{r['file'][:38]:38} p{r['page']}  {r['verdict']:28} "
-              + " ".join(f"{k}={v}" for k, v in r.items() if k not in ("file", "set", "page", "verdict")))
+              + " ".join(f"{k}={v}" for k, v in r.items() if k not in ("file", "set", "page", "verdict", "unknown")))
     print()
     for name, s in summary(rows).items():
         print(f"{name:32} {s['geometry']:3}/{s['pages']:<3} pages get geometry sheets   {s['reasons']}")

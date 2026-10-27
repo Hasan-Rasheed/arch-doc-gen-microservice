@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 from .acadnusx import fold, folded, is_name_word, starts_with
-from .functions import extra_class, function_class, is_accessory
+from .functions import DWELLING, GROUPS, extra_class, function_class, is_accessory, room_name, unit_role
 from .extract import PageData, boundary_mask, rasterize
 from .layers import BOUNDARY
 
@@ -395,6 +395,12 @@ def detect_zones(page: PageData, scale: float = 2.0, room_classes: dict[str, str
             if key and room.anchor is None:
                 room.anchor = _unit_id(w, words)
                 room.anchor_class = ANCHORS[key]
+        if room.anchor is None:
+            # A unit by the classifier's word, whatever the office calls it (hotel room, "N1", …).
+            role = unit_role(extra_class(room.words, room_classes))
+            if role:
+                room.anchor = room_name(room.words)
+                room.anchor_class = role
         room.circulation = room.anchor is None and any(starts_with(t, CIRCULATION) for t in room.words)
         if room.anchor is None and extra_class(room.words, room_classes) == "circulation":
             room.circulation = True
@@ -405,7 +411,7 @@ def detect_zones(page: PageData, scale: float = 2.0, room_classes: dict[str, str
             strong = function_class(room.words, strong_only=True)
             given = extra_class(room.words, room_classes)
             room.accessory = given == "accessory"
-            room.function = strong or function_class(room.words) or (given if given not in (None, "accessory") else None)
+            room.function = strong or function_class(room.words) or (given if given in GROUPS else None)
             room.strong_function = strong is not None
 
     _mark_cores(page, labels, rooms, scale)
@@ -547,7 +553,7 @@ def _attach_leftovers(labels, rooms: dict[int, Room], units: dict[str, list[int]
         nbs = _neighbors(labels, room, reach)
         near_units = {rooms[n].unit for n in nbs if n in rooms and rooms[n].unit}
         classes = {unit_class[u] for u in near_units} if unit_class else set()
-        shared_group = (len(classes) == 1 and "residential" not in classes
+        shared_group = (len(classes) == 1 and not classes & DWELLING
                         and (is_accessory(room.words) or room.accessory))
         if any(rooms[n].circulation for n in nbs if n in rooms) and not shared_group:
             continue

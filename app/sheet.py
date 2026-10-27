@@ -20,6 +20,7 @@ from .extract import PageData
 from .access import accessible_routes, door_clearances
 from .egress import egress_paths
 from .fire import fire_lines
+from .functions import DWELLING
 from .zones import ZoneResult
 
 FONT_FILE = os.environ.get("SHEET_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
@@ -30,6 +31,8 @@ FONT_NAME = "sheetfont"
 CLASS_STYLE = {
     # Album colours: residential pure yellow, business lavender (sampled from the architects' sheets).
     "residential": {"rgb": (0.94, 0.94, 0.0), "code": "სც-2", "ka": "საცხოვრებელი ჯგუფი", "en": "Residential group"},
+    # Hotels and hostels: the same group and colour, the transient sub-group's code.
+    "transient": {"rgb": (0.94, 0.94, 0.0), "code": "სც-1", "ka": "საცხოვრებელი ჯგუფი", "en": "Residential group (transient)"},
     "business": {"rgb": (0.55, 0.38, 0.85), "code": "სქ", "ka": "საქმიანი ჯგუფი", "en": "Business group"},
     "mercantile": {"rgb": (0.85, 0.35, 0.0), "code": "სვ", "ka": "სავაჭრო ჯგუფი", "en": "Mercantile group"},
     "assembly": {"rgb": (0.8, 0.1, 0.45), "code": "თვ", "ka": "თავშეყრის ჯგუფი", "en": "Assembly group"},
@@ -488,7 +491,7 @@ def occupancy_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneR
 
     # Longest escape routes (green), on residential floors only — the rules behind them are
     # validated there (same condition as the fire/accessibility sheets).
-    residential = [u for u, r in zones.units.items() if r and zones.unit_class[u] == "residential"]
+    residential = [u for u, r in zones.units.items() if r and zones.unit_class[u] in DWELLING]
     egress = egress_paths(page, zones, zone_scale) if len(residential) * 2 >= len([1 for r in zones.units.values() if r]) else []
     _draw_egress(out, egress)
 
