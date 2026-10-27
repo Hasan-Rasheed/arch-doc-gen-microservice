@@ -4,9 +4,10 @@
   and balconies are outside) — and every wall around a stair or lift core (№41 §713.4 / §1022.2:
   2 h when the core connects four or more storeys, 1 h otherwise — basements count).
 - 1-hour (blue): walls between dwellings (§420.2 fire partitions, §708.3 ≥ 1 h), and between a
-  unit and a corridor (Table 1018.1: სც > 10 occupants 1 h, or 0.5 h sprinklered; other groups
-  > 30 occupants 1 h, or none sprinklered). Walls between rooms of one non-residential group
-  aren't rated.
+  unit and a corridor (Table 1018.1, by the unit's group and the floor's occupant load from
+  Table 1004.1.2: სც > 10 occupants 1 h, or 0.5 h sprinklered; დწ any load 1 h, none
+  sprinklered; other groups > 30 occupants 1 h, none sprinklered). Walls between rooms of one
+  non-residential group aren't rated.
 - Between units of different non-residential groups: Table 508.4 (separated occupancies), e.g.
   parking ↔ offices 2 h (1 h sprinklered); offices ↔ shops none. A dwelling toward any other use
   too: 2 h without sprinklers, 1 h with — never below the §420.2 fire partition (1 h). The album
@@ -170,6 +171,53 @@ TABLE_508_4 = {
     ("B", "B"): (None, None),
 }
 HOURS = {1: "1h", 2: "2h"}
+
+# Table 1004.1.2: floor area per occupant (m², gross unless noted), for the occupant load a
+# corridor serves. Mercantile uses the ground-floor value and assembly the unconcentrated one —
+# the larger load when the floor isn't known.
+LOAD_M2 = {
+    "residential": 18.6, "transient": 18.6, "business": 9.3, "mercantile": 2.8, "assembly": 1.4,
+    "educational": 1.9, "institutional": 22.3, "factory": 9.3, "storage": 46.5, "parking": 18.6,
+}
+# Table 1018.1: corridor walls by the group a unit belongs to — (occupants above which the
+# corridor is rated, without sprinklers, with sprinklers). Where the table says "not permitted"
+# without sprinklers (სც, დწ) the 1-hour wall is drawn, as the album does for dwellings.
+CORRIDOR_1018 = {
+    "residential": (10, "1h", "0.5h"), "transient": (10, "1h", "0.5h"),
+    "institutional": (0, "1h", None),
+}
+CORRIDOR_OTHER = (30, "1h", None)   # თვ, სქ, სგ, სმ, სვ, სწ
+
+
+def corridor_rating(group: str | None, load: float | None, sprinklered: bool) -> str | None:
+    """Rating of a unit's wall toward a corridor serving `load` occupants (None: unknown → rated)."""
+    above, plain, with_spr = CORRIDOR_1018.get(group or "", CORRIDOR_OTHER)
+    if load is not None and load <= above:
+        return None
+    return with_spr if sprinklered else plain
+
+
+def corridor_for_floor(groups: set[str | None], load: float | None, sprinklered: bool) -> str | None:
+    """A corridor serving several groups meets the strictest of them (gegmebi −2: flats and an
+    office share one corridor, rated 1 h for the flats, office side included)."""
+    best = None
+    for g in groups:
+        r = corridor_rating(g, load, sprinklered)
+        if RANK[r] > RANK[best]:
+            best = r
+    return best
+
+
+def floor_load(zones: ZoneResult) -> float | None:
+    """Occupants of the floor's units (Table 1004.1.2), or None without a drawing scale."""
+    if not zones.drawing_scale:
+        return None
+    m2_per_pt2 = (25.4 / 72 / 1000 * zones.drawing_scale) ** 2
+    load = 0.0
+    for anchor, rids in zones.units.items():
+        area = sum(zones.rooms[r].area_pt2 for r in rids) * m2_per_pt2
+        load += area / LOAD_M2.get(zones.unit_class.get(anchor, ""), 9.3)
+    return load
 RANK = {"2h": 3, "1h": 2, "0.5h": 1, None: 0}
 
 
@@ -187,7 +235,8 @@ def separation_508(group_a: str | None, group_b: str | None, sprinklered: bool =
 
 
 def _rating(kind_a: int, kind_b: int, group_a: str | None = None, group_b: str | None = None,
-            storeys: int | None = None, sprinklered: bool = False) -> str | None:
+            storeys: int | None = None, sprinklered: bool = False, load: float | None = None,
+            corridor: str | None = "unset") -> str | None:
     """Rating of the wall between two spaces (see the module docstring for the №41 sections)."""
     if STAIR in (kind_a, kind_b):
         return "1h" if storeys is not None and storeys < 4 else "2h"
@@ -201,10 +250,9 @@ def _rating(kind_a: int, kind_b: int, group_a: str | None = None, group_b: str |
             return separated if RANK[separated] > RANK["1h"] else "1h"
         return separated
     if UNIT in (kind_a, kind_b) and CORRIDOR in (kind_a, kind_b):
-        group = group_a if kind_a == UNIT else group_b
-        if not sprinklered:
-            return "1h"
-        return "0.5h" if group in DWELLING else None
+        if corridor != "unset":
+            return corridor  # the floor's corridor rating (corridor_for_floor)
+        return corridor_rating(group_a if kind_a == UNIT else group_b, load, sprinklered)
     return None
 
 
@@ -251,6 +299,8 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
     part = _partition(zones, space_of, envelope)
 
     lines: dict[str, list] = {"2h": [], "1h": [], "0.5h": []}
+    load = floor_load(zones)
+    corridor = corridor_for_floor(set(group.values()), load, sprinklered) if group else None
     m = 1000 / zones.drawing_scale / 25.4 * 72 if zones.drawing_scale else None
     walls = rasterize(page, scale, (BOUNDARY - {"DOOR"}) | {"WALL_FILL"}, min_px=2)
     walls[door_mask(page, scale, m) > 0] = 0  # doors drawn on wall layers aren't wall
@@ -283,7 +333,7 @@ def fire_lines(page: PageData, zones: ZoneResult, scale: float, storeys: int | N
                 for o in others:
                     if o < sid:
                         continue
-                    r = _rating(kinds[sid], kinds[o], group.get(sid), group.get(o), storeys, sprinklered)
+                    r = _rating(kinds[sid], kinds[o], group.get(sid), group.get(o), storeys, sprinklered, load, corridor)
                     if r == "2h" and kinds[sid] == kinds[o] == UNIT and group.get(sid) != group.get(o) \
                             and (group.get(sid) in DWELLING or group.get(o) in DWELLING):
                         separated_dwelling = True

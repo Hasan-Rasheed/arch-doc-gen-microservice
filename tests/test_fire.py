@@ -119,3 +119,22 @@ def test_no_escape_route_when_a_stair_was_cut_off(docs):
     _, _, sources = docs
     page = sources[1]
     assert egress_paths(page, detect_zones(page, SCALE), SCALE) == []
+
+
+def test_corridor_walls_by_table_1018_1():
+    from app.fire import corridor_rating
+    # Dwellings and hotels: > 10 occupants 1 h (0.5 h sprinklered); 10 or fewer none.
+    assert corridor_rating("residential", 40, False) == "1h" and corridor_rating("transient", 40, True) == "0.5h"
+    assert corridor_rating("residential", 8, False) is None
+    # Offices, shops, schools…: > 30 occupants 1 h, none sprinklered; a small office floor none.
+    assert corridor_rating("business", 45, False) == "1h" and corridor_rating("business", 45, True) is None
+    assert corridor_rating("business", 20, False) is None
+    # Hospitals: any load 1 h unsprinklered; unknown load (no scale) is rated.
+    assert corridor_rating("institutional", 5, False) == "1h" and corridor_rating("mercantile", None, False) == "1h"
+
+
+def test_shared_corridor_takes_the_strictest_group():
+    from app.fire import corridor_for_floor
+    # Flats + a small office on one corridor (gegmebi −2): 26 occupants → 1 h for the flats' sake.
+    assert corridor_for_floor({"residential", "business"}, 26, False) == "1h"
+    assert corridor_for_floor({"business"}, 26, False) is None

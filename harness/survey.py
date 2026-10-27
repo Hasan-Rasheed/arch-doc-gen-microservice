@@ -25,7 +25,7 @@ from app.zones import detect_zones
 from harness.samples import SAMPLES, inputs, project
 
 
-def survey(samples: Path = SAMPLES, scale: float = 1.0, classes: dict[str, str] | None = None) -> list[dict]:
+def survey(samples: Path = SAMPLES, scale: float = 2.0, classes: dict[str, str] | None = None) -> list[dict]:
     rows = []
     for path in inputs(samples):
         name = str(path.relative_to(samples))
@@ -67,7 +67,7 @@ def summary(rows: list[dict]) -> dict[str, dict]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", default=str(SAMPLES))
-    ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--scale", type=float, default=2.0)  # the service's ZONE_SCALE
     ap.add_argument("--classes", help="JSON {room name: class} from the LLM")
     ap.add_argument("--out", default="out/survey")
     args = ap.parse_args()

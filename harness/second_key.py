@@ -93,7 +93,7 @@ def evaluate(samples: Path, key: Key, scale: float) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", default=str(SAMPLES))
-    ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--scale", type=float, default=2.0)  # the service's ZONE_SCALE
     ap.add_argument("--out", default="out/second_key")
     args = ap.parse_args()
     rows = [evaluate(Path(args.samples), k, args.scale) for k in KEYS]
