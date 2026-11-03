@@ -181,3 +181,12 @@ Grand Master 42 after part 1: 60% of named rooms in units (was 65% with the stai
 office); still held back by the 75% gate. Still open there: its corridor is split by glazed
 partitions into 5-6 unnamed regions with no doors between them; office N06's upper rooms aren't
 reached; the second stair is only partly found.
+
+## Deploying (e.g. Render, Docker)
+
+- The container listens on `$PORT` (8090 when unset).
+- `GEOMETRY_TOKEN`: set a long random key; every call except `/health` must then send it in
+  `x-geometry-token` (the backend does, from its own `GEOMETRY_TOKEN`). Unset = open (local only).
+- `GEOMETRY_WORKERS`: pages processed in parallel. Peak memory on the 7-page gegmebi set:
+  1 worker ≈ 360 MB, 2 ≈ 600 MB, 4 ≈ 1.1 GB. Use 1 on a 512 MB instance, 2 on 1–2 GB.
+- Health check path: `/health`.

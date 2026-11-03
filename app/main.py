@@ -18,6 +18,22 @@ from .zones import ZoneResult, detect_zones
 
 app = FastAPI(title="ArchiDocGen geometry service")
 
+# GEOMETRY_TOKEN set (deployed): every call but /health needs the same key in x-geometry-token,
+# so the public URL can't be used by anyone else. Unset (local development): open.
+TOKEN = os.environ.get("GEOMETRY_TOKEN", "").strip()
+
+
+@app.middleware("http")
+async def require_token(request, call_next):
+    if TOKEN and request.url.path != "/health":
+        import hmac
+
+        from fastapi.responses import JSONResponse
+
+        if not hmac.compare_digest(request.headers.get("x-geometry-token", ""), TOKEN):
+            return JSONResponse({"detail": "missing or wrong x-geometry-token"}, status_code=401)
+    return await call_next(request)
+
 ZONE_SCALE = 2.0
 # Pages processed in parallel (one process each); GEOMETRY_WORKERS=1 turns it off.
 WORKERS = int(os.environ.get("GEOMETRY_WORKERS") or min(4, os.cpu_count() or 1))
