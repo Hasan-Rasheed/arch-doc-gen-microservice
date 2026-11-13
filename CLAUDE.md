@@ -38,8 +38,8 @@ This file is read at the start of every session in this repo. The project-wide f
 
 ## Production
 
-- **Railway, not set up yet.** Until it runs, the backend has no `GEOMETRY_SERVICE_URL` and every
-  colour sheet in production comes from the AI.
+- **Railway:** https://arch-doc-gen-microservice-production.up.railway.app (health: `/health`). The backend calls it with `GEOMETRY_SERVICE_URL` and
+  `GEOMETRY_TOKEN`; if it is unreachable, the backend falls back to AI sheets.
 - Backend: https://arch-doc-gen-backend-production.up.railway.app. Frontend:
   https://arch-doc-gen.vercel.app.
 - Setup steps: [specs/deployment.md](specs/deployment.md).
@@ -61,7 +61,7 @@ This file is read at the start of every session in this repo. The project-wide f
 
 - **Client:** Zura. The users are Georgian architects and CAD users in multi-user studio
   workspaces. Contract: `../Milestone Proposal.md`.
-- **Built by:** Hasan Rasheed (developer), working with Claude Code.
+- **Built by:** Hasan Rasheed (developer).
 - **Inputs** are architects' master (working) PDFs, mostly vector, often with CAD layers. Scans
   are rare.
 

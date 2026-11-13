@@ -9,9 +9,9 @@
 
   It runs `uvicorn app.main:app` on `$PORT`, or 8090 when that is unset.
 - **Rebuild the image after any change in `app/`.** The backend calls whatever image is running.
-- **Production:** Railway, **not set up yet**. Once it runs:
-  - set `GEOMETRY_TOKEN` to a long random key, and set the same value on the backend;
-  - set the backend's `GEOMETRY_SERVICE_URL` to this service;
+- **Production:** Railway, https://arch-doc-gen-microservice-production.up.railway.app (running; `/health` answers `{"ok":true}`). Required setup:
+  - `GEOMETRY_TOKEN` is a long random key, with the same value on the backend;
+  - the backend's `GEOMETRY_SERVICE_URL` is this service;
   - keep the port reachable from the backend only;
   - use `/health` as the health check path.
 - **`GEOMETRY_WORKERS`:** pages processed in parallel. Peak memory on gegmebi:
