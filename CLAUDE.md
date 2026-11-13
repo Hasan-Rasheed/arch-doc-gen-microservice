@@ -60,7 +60,7 @@ This file is read at the start of every session in this repo. The project-wide f
 ## Client and team
 
 - **Client:** Zura. The users are Georgian architects and CAD users in multi-user studio
-  workspaces. Contract: `../Milestone Proposal.md`.
+  workspaces.
 - **Built by:** Hasan Rasheed (developer).
 - **Inputs** are architects' master (working) PDFs, mostly vector, often with CAD layers. Scans
   are rare.
