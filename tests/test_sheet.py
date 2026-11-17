@@ -136,6 +136,9 @@ def test_api_plan_matches_the_sheets():
     with SOURCE.open("rb") as f:
         sheets = client.post("/sheets", files={"file": ("gegmebi.pdf", f, "application/pdf")}, data={"lang": "ka"}).json()
     drawn = {(s["index"], s["kind"]) for s in sheets["sheets"]}
+    # The same escape-route lengths as the occupancy sheets, known before generation.
+    occ = {s["index"]: s["egressM"] for s in sheets["sheets"] if s["kind"] == "occupancy"}
+    assert {p["index"]: p["egressM"] for p in ok} == occ
     planned = {(p["index"], k) for p in ok for k in p["kinds"]}
     # Fire sheets can still be held back after drawing (no unit/corridor walls found).
     assert drawn <= planned and {(i, k) for i, k in planned if k != "fire"} <= drawn

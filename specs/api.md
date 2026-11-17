@@ -12,6 +12,8 @@ with uvicorn.
   - per page, whether geometry sheets can be drawn (`verdict: "ok"` or the reason not) and which
     kinds;
   - **nothing is drawn**, so it is cheap; the backend calls it during the Read step;
+  - an "ok" page also gives `egressM`, the escape-route lengths its occupancy sheet will carry
+    (`[]` when none is measured), so Review can ask for the floors without one;
   - a held-back page lists `unclassifiedNames` for the backend's LLM classifier, and is checked
     again when `room_classes` and `pages` are sent.
 - **`POST /sheets`** (`file`, `lang` ka|en, `kinds`, `pages?`, `room_classes?`, `storeys?`,

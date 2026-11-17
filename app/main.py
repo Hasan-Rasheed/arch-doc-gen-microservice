@@ -10,7 +10,7 @@ from itertools import repeat
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
 from .extract import PageData, open_pdf, read_page, read_pdf, summary
-from .sheet import access_sheet, fire_sheet, occupancy_sheet, to_jpeg
+from .sheet import access_sheet, fire_sheet, floor_egress, occupancy_sheet, to_jpeg
 from .acadnusx import fold
 from .fire import _open_air
 from .functions import DWELLING, EXTRA_CLASSES, is_accessory, room_name
@@ -156,8 +156,14 @@ def _page_plan(data: bytes, index: int, room_classes: dict[str, str] | None = No
         if names:
             entry["unclassifiedNames"] = names
         return entry
-    return {"index": index, "verdict": "ok", "kinds": sorted(_rule_kinds(zones)), "hasLayers": True,
-            "units": stats.get("units", 0)}
+    kinds = _rule_kinds(zones)
+    # The occupancy sheet's escape-route lengths (m); [] when none is measured on this floor.
+    try:
+        egress_m = [round(p.length_m, 1) for p in floor_egress(page, zones, ZONE_SCALE)] if "occupancy" in kinds else []
+    except Exception:
+        egress_m = []
+    return {"index": index, "verdict": "ok", "kinds": sorted(kinds), "hasLayers": True,
+            "units": stats.get("units", 0), "egressM": egress_m}
 
 
 def _page_sheets(data: bytes, index: int, lang: str, kinds: list[str],

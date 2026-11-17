@@ -471,6 +471,16 @@ def _base_page(src: fitz.Document, index: int) -> fitz.Document:
     return out_doc
 
 
+def floor_egress(page: PageData, zones: ZoneResult, zone_scale: float):
+    """Longest escape routes (green), on residential floors only — the rules behind them are
+    validated there (same condition as the fire/accessibility sheets). Shared by the occupancy
+    sheet and /plan, so Review knows before generation which floors have a measured route."""
+    residential = [u for u, r in zones.units.items() if r and zones.unit_class[u] in DWELLING]
+    if len(residential) * 2 < len([1 for r in zones.units.values() if r]):
+        return []
+    return egress_paths(page, zones, zone_scale)
+
+
 def occupancy_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneResult,
                     zone_scale: float, lang: str = "ka") -> SheetResult:
     out_doc = _base_page(src, index)
@@ -489,10 +499,7 @@ def occupancy_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneR
     # area right beside it ("ბინა-02 | 185.2") — the album keeps that as the zone tag.
     tags = unit_tags(page, zones)
 
-    # Longest escape routes (green), on residential floors only — the rules behind them are
-    # validated there (same condition as the fire/accessibility sheets).
-    residential = [u for u, r in zones.units.items() if r and zones.unit_class[u] in DWELLING]
-    egress = egress_paths(page, zones, zone_scale) if len(residential) * 2 >= len([1 for r in zones.units.values() if r]) else []
+    egress = floor_egress(page, zones, zone_scale)
     _draw_egress(out, egress)
 
     if classes:

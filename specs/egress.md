@@ -11,7 +11,9 @@ The longest escape travel distance per floor, as the album draws it on the occup
   a different block.
 - **Label:** each line carries its length in metres. The legend row is "ევაკუაციის უდიდესი სავალი
   მანძილი" / "Longest escape travel distance".
-- **The lengths go to the report** as measured facts (backend `measured-facts.ts`).
+- **The lengths go to the report** as measured facts (backend `measured-facts.ts`). `/plan`
+  gives the same lengths before generation (`floor_egress`, shared with the sheet), so the
+  backend's Review asks for the travel distance of floors without one.
 - **Detour guard:** a route more than 3× the straight line to a stair we couldn't reach is not
   drawn.
 - **Where:** on residential floors only.
