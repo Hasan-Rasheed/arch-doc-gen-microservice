@@ -30,3 +30,4 @@ Project-wide status: `../ROADMAP.md`.
 | Ardstudio p6 | Coverage 0.67, under the 0.75 gate |
 | Georgian CAD-font OCR | Parked (inputs are master files; scans are rare) |
 | Escape routes as their own sheet, parking layout sheet | Parked (not in the album) |
+| Escape routes on gegmebi −3 and −2 (2026-11-17) | No travel distance is measured there, so the report has none for those floors. −2: the south stair's walkable band is sealed from the corridor by a line drawn across its door, so the units route to the far north stair and the detour guard drops the route. −3: the single unit (lower level of a two-level dwelling) never connects to the stair. Both are door-reading faults in `walk_grid`. A rule counting doors on the outer edge as exits (№41 exit doors) was tried: no effect on gegmebi (no door swing is drawn on the outer walls there), upper floors unchanged; not kept without a sample it helps |

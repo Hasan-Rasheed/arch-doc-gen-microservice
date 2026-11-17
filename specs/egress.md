@@ -26,7 +26,11 @@ The longest escape travel distance per floor, as the album draws it on the occup
 
 - Floors −1 to 2: P 0.30–0.36, R 0.36–0.51. The album routes to the farther north stair.
 - Floor 3: P 0.95, R 0.71.
-- Floor −2: none drawn, because the detour guard applied.
+- Floor −2: none drawn, because the detour guard applied: the south stair is cut off by a line
+  across its door (rechecked 2026-11-17), so the units only reach the north stair (55–61 m).
+- Floor −3: none drawn: its single unit does not connect to the stair.
+- Only stairs are exits. The album also counts doors straight to the outside ("გზა-კარი" on −2);
+  see `docs/open_questions.md`.
 
 ## Related
 
