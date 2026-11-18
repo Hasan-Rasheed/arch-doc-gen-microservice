@@ -22,6 +22,15 @@ How rooms, units and №41 occupancy groups are found. This feeds every sheet.
      corridor rooms.
    - It grows only into rooms with a real name, or compact pockets of 4 m² or less.
    - Private terraces and balconies are coloured.
+   - **Unit area for the occupant load** (`unit_tags`, `unit_open_air` in `app/sheet.py`): each
+     unit reports its printed area (`areaM2`, else `measuredM2` of its indoor rooms) and,
+     separately, `openAirM2`, its balconies, loggias and terraces (their printed areas, else
+     measured). Table 1004.1.2's residential and most other factors are gross ("მთლიანი"), and
+     the architects' album tags each flat with area + balconies (gegmebi −1: 29.2 + 10.50 = 39.7).
+     A balcony the door walk didn't reach (glazed door drawn as a window) goes to the unit it
+     touches across one wall, when that unit has at least twice the contact of the next one;
+     otherwise it is left out. On gegmebi every flat's gross area matches the album's tag (−2 to
+     2), except a flat with no printed area (measured instead).
    - Rooms reached by two units are shared and stay uncoloured, like corridors.
 4. **Without unit words** (clinics, schools, offices):
    - Room **functions** map to №41 groups (`functions.py`), e.g. wards → დწ, labs and offices →

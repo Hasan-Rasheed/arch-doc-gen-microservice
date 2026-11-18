@@ -19,9 +19,9 @@ import numpy as np
 from .extract import PageData
 from .access import accessible_routes, door_clearances
 from .egress import egress_paths
-from .fire import fire_lines
+from .fire import _open_air, fire_lines
 from .functions import DWELLING
-from .zones import ZoneResult
+from .zones import ZoneResult, room_window
 
 FONT_FILE = os.environ.get("SHEET_FONT", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 FONT_NAME = "sheetfont"
@@ -100,7 +100,8 @@ class UnitTag:
     name: str
     cls: str
     area_m2: float | None          # unit area printed beside its name on the sheet
-    measured_m2: float | None      # floor area of the unit's rooms measured from geometry
+    measured_m2: float | None      # floor area of the unit's indoor rooms measured from geometry
+    open_air_m2: float = 0.0       # the unit's balconies / terraces (printed area, else measured)
 
 
 @dataclass
@@ -450,15 +451,54 @@ def printed_unit_area(page: PageData, anchor: str) -> float | None:
     return None
 
 
+OPEN_AIR_REACH_PT = 8.0  # a balcony is attached to the unit across one wall (as fire.py's reach)
+
+
+def unit_open_air(zones: ZoneResult) -> dict[str, list[int]]:
+    """Balconies and terraces of each unit. One the door walk put in the unit is its own; one
+    reached through a glazed door drawn as a window is left out of every unit, so it goes to the
+    unit it touches across one wall — when one unit clearly has most of that contact (at least
+    twice the next one); a balcony shared evenly between two units, or touching none, is left out."""
+    own: dict[str, list[int]] = {a: [r for r in rids if _open_air(zones.rooms[r])] for a, rids in zones.units.items()}
+    unit_of = {r: a for a, rids in zones.units.items() for r in rids if not _open_air(zones.rooms[r])}
+    for rid, room in zones.rooms.items():
+        if room.unit or not room.inside or not _open_air(room):
+            continue
+        reach = max(3, int(round(OPEN_AIR_REACH_PT * zones.scale)))
+        win = room_window(zones.labels, room, reach)
+        crop = zones.labels[win]
+        mine = (crop == rid).astype(np.uint8)
+        ring = (cv2.dilate(mine, np.ones((2 * reach + 1, 2 * reach + 1), np.uint8)) > 0) & (mine == 0)
+        ids, counts = np.unique(crop[ring], return_counts=True)
+        contact: dict[str, int] = {}
+        for i, c in zip(ids.tolist(), counts.tolist()):
+            if i in unit_of:
+                contact[unit_of[i]] = contact.get(unit_of[i], 0) + c
+        ranked = sorted(contact.items(), key=lambda kv: -kv[1])
+        if ranked and (len(ranked) == 1 or ranked[0][1] >= 2 * ranked[1][1]):
+            own[ranked[0][0]].append(rid)
+    return own
+
+
 def unit_tags(page: PageData, zones: ZoneResult) -> list[UnitTag]:
     m2_per_pt2 = (25.4 / 72 / 1000 * zones.drawing_scale) ** 2 if zones.drawing_scale else None
+    open_air = unit_open_air(zones)
     tags = []
     for anchor, rids in zones.units.items():
         if not rids:
             continue
-        measured = sum(zones.rooms[r].area_pt2 for r in rids) * m2_per_pt2 if m2_per_pt2 else None
+        indoor = [r for r in rids if not _open_air(zones.rooms[r])]
+        measured = sum(zones.rooms[r].area_pt2 for r in indoor) * m2_per_pt2 if m2_per_pt2 else None
+        # A balcony's printed area ("აივანი 8.52 მ²"), else its measured area, else nothing.
+        outdoor = 0.0
+        for r in open_air.get(anchor, []):
+            room = zones.rooms[r]
+            if room.labeled_areas:
+                outdoor += sum(room.labeled_areas)
+            elif m2_per_pt2:
+                outdoor += room.area_pt2 * m2_per_pt2
         tags.append(UnitTag(anchor, zones.unit_class[anchor], printed_unit_area(page, anchor),
-                            round(measured, 1) if measured else None))
+                            round(measured, 1) if measured else None, round(outdoor, 2)))
     return tags
 
 

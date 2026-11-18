@@ -110,6 +110,7 @@ class ZoneResult:
     drawing_scale: int | None        # e.g. 200 for 1:200
     area_checks: list[dict]
     function_units: set[str] = field(default_factory=set)  # units made from a room's function name
+    scale: float = 2.0               # pixels per point of `labels`
 
 
 def _room_at(labels: np.ndarray, x: float, y: float, scale: float, search_px: int = 6) -> int:
@@ -489,7 +490,7 @@ def detect_zones(page: PageData, scale: float = 2.0, room_classes: dict[str, str
                                "measured": round(measured, 1),
                                "ratio": round(measured / room.labeled_areas[0], 2) if room.labeled_areas[0] else None})
 
-    return ZoneResult(labels, outside, rooms, units, unit_class, masks, denom, checks, function_units)
+    return ZoneResult(labels, outside, rooms, units, unit_class, masks, denom, checks, function_units, scale)
 
 
 MAX_UNLABELED_POCKET_PT2 = 1600  # ≈ 4 m² at 1:200: door-swing pockets, small shafts

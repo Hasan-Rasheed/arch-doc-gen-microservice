@@ -22,7 +22,10 @@ with uvicorn.
   - pages that can't be done reliably are listed in `skipped` with the reason, and the backend
     falls back to AI sheets for them;
   - `storeys` is the number of storeys the stair cores connect (2 h cores from 4);
-  - `sprinklered` applies the sprinklered values of Tables 1018.1 and 508.4.
+  - `sprinklered` applies the sprinklered values of Tables 1018.1 and 508.4;
+  - each occupancy sheet lists its `units`: `name`, `class`, `areaM2` (printed), `measuredM2`
+    (indoor rooms), `openAirM2` (the unit's balconies and terraces, 0 when none; see
+    [zones.md](zones.md) rule 3).
 - **`POST /sheets/occupancy`:** the same as `/sheets` with `kinds=occupancy`.
 - **`room_classes`** is the classifier's `{room name: class}`:
   - names are folded, so any spelling matches;
