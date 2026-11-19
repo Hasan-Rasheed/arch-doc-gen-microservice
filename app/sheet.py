@@ -114,6 +114,7 @@ class SheetResult:
     classes: list[str]
     egress_m: list[float] = field(default_factory=list)  # longest escape routes drawn (occupancy)
     separated_dwelling: bool = False  # fire: a dwelling ↔ other-use wall drawn 2 h (Table 508.4)
+    unit_coverage: float | None = None  # occupancy: share of the floor's printed room areas in units
 
 
 def _font() -> fitz.Font:
@@ -480,6 +481,21 @@ def unit_open_air(zones: ZoneResult) -> dict[str, list[int]]:
     return own
 
 
+def unit_coverage(zones: ZoneResult) -> float | None:
+    """Share of the floor's printed room areas ("NN.N მ²" inside the building, balconies left
+    out) that lie in the units found. The units' areas are fixed facts for the report only when
+    they cover most of the floor: gegmebi 0.86–0.95, TRIBE 0.03–0.50 on the pages whose units
+    were partial. Printed areas are used, not measured regions, because the measured regions
+    include walls and pockets (gegmebi 0.55). None when the floor prints no room areas."""
+    indoor = [r for r in zones.rooms.values() if r.inside and r.id != zones.outside and not _open_air(r)]
+    total = sum(sum(r.labeled_areas) for r in indoor)
+    if total <= 0:
+        return None
+    unit_rooms = {rid for rids in zones.units.values() for rid in rids}
+    in_units = sum(sum(r.labeled_areas) for r in indoor if r.id in unit_rooms)
+    return round(in_units / total, 2)
+
+
 def unit_tags(page: PageData, zones: ZoneResult) -> list[UnitTag]:
     m2_per_pt2 = (25.4 / 72 / 1000 * zones.drawing_scale) ** 2 if zones.drawing_scale else None
     open_air = unit_open_air(zones)
@@ -551,6 +567,7 @@ def occupancy_sheet(src: fitz.Document, index: int, page: PageData, zones: ZoneR
     title_lines, number, derived = _rewrite_title(out, page, "occupancy", lang)
     result = SheetResult(out_doc, number, derived, title_lines, tags, classes)
     result.egress_m = [round(p.length_m, 1) for p in egress]
+    result.unit_coverage = unit_coverage(zones)
     return result
 
 

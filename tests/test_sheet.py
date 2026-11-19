@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.extract import open_pdf, read_page
 from app.main import app
-from app.sheet import CLASS_STYLE, find_empty_box, hatch_segments, occupancy_sheet, printed_unit_area, title_block, unit_tags
+from app.sheet import CLASS_STYLE, find_empty_box, hatch_segments, occupancy_sheet, printed_unit_area, title_block, unit_coverage, unit_tags
 from app.zones import detect_zones
 from harness.samples import GEGMEBI, HOTEL
 
@@ -69,6 +69,16 @@ def test_unit_balconies_give_the_albums_gross_areas():
     gross = {n: round(t.area_m2 + t.open_air_m2, 1) for n, t in tags.items()}
     assert gross == {"ბინა-03": 39.7, "ბინა-04": 49.0, "ბინა-05": 54.5, "ბინა-06": 73.2,
                      "ბინა-07": 74.9, "ბინა-08": 42.6}
+
+
+@needs_pdf
+def test_unit_coverage_is_high_when_every_flat_is_found():
+    # gegmebi: every flat is found, so most printed room areas lie in units (0.86–0.95); the
+    # backend fixes a floor's measured units only from 0.6.
+    doc = open_pdf(SOURCE)
+    for index in range(6):
+        page = read_page(doc, index)
+        assert unit_coverage(detect_zones(page, 2.0)) >= 0.8
 
 
 @needs_pdf

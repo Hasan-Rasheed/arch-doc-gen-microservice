@@ -25,7 +25,9 @@ with uvicorn.
   - `sprinklered` applies the sprinklered values of Tables 1018.1 and 508.4;
   - each occupancy sheet lists its `units`: `name`, `class`, `areaM2` (printed), `measuredM2`
     (indoor rooms), `openAirM2` (the unit's balconies and terraces, 0 when none; see
-    [zones.md](zones.md) rule 3).
+    [zones.md](zones.md) rule 3), and `unitCoverage`: the share of the floor's printed room
+    areas that lie in those units (null when none is printed). The backend fixes the units only
+    from 0.6 (gegmebi 0.86–0.95; TRIBE 0.03–0.50).
 - **`POST /sheets/occupancy`:** the same as `/sheets` with `kinds=occupancy`.
 - **`room_classes`** is the classifier's `{room name: class}`:
   - names are folded, so any spelling matches;
